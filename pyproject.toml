@@ -1,0 +1,23 @@
+[project]
+name = "marv-hyena"
+version = "0.1.0"
+description = "MARV-style interpretability for StripedHyena DNA models (Evo 2): exact per-operator trace, lag-band distance decomposition, ablation/patching, weight-read filter reach, first-layer motif enumeration."
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "numpy>=1.24",
+    "biopython>=1.80",
+    "huggingface_hub>=0.23",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+# evo2 itself (needs Linux + CUDA + flash-attn) is installed separately; see README.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["marv_hyena*"]
