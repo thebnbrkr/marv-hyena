@@ -30,6 +30,27 @@ from .arch import HyenaModel
 from .trace import Row, logit_direction
 
 
+def _autograd_safe(hm: HyenaModel, layer: int) -> int:
+    """Vortex's load_checkpoint casts weights to bf16 inside torch.inference_mode(),
+    which turns every parameter into an 'inference tensor' -- and autograd refuses
+    to save those for backward ("Inference tensors cannot be saved for backward").
+    Replace such parameters/buffers in the modules the gradient flows through
+    with ordinary copies (same values). Returns how many tensors were replaced."""
+    mods = [hm.block(b) for b in range(layer, hm.n_blocks)] + [hm.model.norm, hm.model.embedding_layer]
+    n = 0
+    for top in mods:
+        for m in top.modules():
+            for name, p in list(m._parameters.items()):
+                if p is not None and p.is_inference():
+                    m._parameters[name] = torch.nn.Parameter(p.detach().clone(), requires_grad=False)
+                    n += 1
+            for name, b in list(m._buffers.items()):
+                if b is not None and b.is_inference():
+                    m._buffers[name] = b.clone()
+                    n += 1
+    return n
+
+
 def _tail(hm: HyenaModel, u: torch.Tensor, layer: int) -> torch.Tensor:
     """Run blocks layer.. + final norm + unembed on residual u (1, L, H) -> logits (1, L, V)."""
     for b in range(layer, hm.n_blocks):
@@ -111,6 +132,8 @@ def block_input_attribution(hm: HyenaModel, seq: str, index: int, layer: int, ta
         h2.remove()
     u, e = store["u"], store["e"].to(store["u"].device)
 
+    _autograd_safe(hm, layer)
+    u, e = u.clone(), e.clone()  # hooks ran under no_grad; make sure neither is an inference tensor
     direction, tw = logit_direction(hm, target, baseline_letter)
     tw = tw.to(hm.device)
 

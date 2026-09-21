@@ -43,6 +43,10 @@ destroys copying as badly as `-attn`.
   guessing), because it also removed block 30, which appears to dominate the output (RESEARCH_LOG round 1, finding 2).
   Round 2 repeats this without the bottleneck block and with a health check.
 
+**Outcome (2026-09-21, round 3, the LI part, now testable):** REFUTED. With the load-bearing layers kept on, `-li` is
+healthy and copying at the 10,000 gap drops from 0.997 to 0.556 (a 0.44 drop, far more than the predicted < 0.10).
+Short gaps are barely affected (0.986 at 100). Corrected model: attention is essential for copying at every distance,
+and LI contributes substantially at long range.
 
 ---
 
@@ -87,6 +91,11 @@ position 3 (the wobble position): 0.936 / 0.964 / 0.700, intergenic 0.618. Confi
 (0.701 / 0.759 / 0.585). A broken model loses every rhythm, so "SE carries the rhythm" can't be tested by
 family ablation. Round 2: single-layer ablations with a health check.
 
+**Outcome (2026-09-21, round 3, fair test with load-bearing layers kept on):** REFUTED. `-se` shrinks the codon
+rhythm from 0.251 to 0.109 (−57%, which meets the "≥ 50%" bar), but `-mr` removes more: 0.251 → −0.016 (−106%, the
+rhythm is gone). That matches the refutation condition "another operator type removes more of the periodicity than
+`-se`". Health under `-mr` on the gene window is 0.461 vs. 0.571 under `-se`, so both models are degraded but working.
+Corrected model: the reading frame is carried mainly by the MR (128-letter) layers.
 
 ---
 
@@ -193,6 +202,9 @@ ablations: removing L2 (the LI block with the longest-reaching filters) lowers c
 0.822 with the model healthy (0.845). So LI takes a modest part in long-range copying. That's not below the 0.5
 refutation bar, but it goes against "LI does not copy". Round 3: family ablations that keep L0, L1, L9, L29, L30 on.
 
+**Outcome (2026-09-21, round 3):** REFUTED once testable. Keeping all load-bearing layers on (L0, L1, L4, L9, L29,
+L30), `-li` is healthy (0.528) and copying at the 10,000 gap falls to 0.556. That's not below the 0.5 refutation bar, but
+LI clearly takes part in long-range copying, which goes against "LI does not copy".
 
 ---
 
@@ -267,6 +279,9 @@ write changes the logits by < 1% of their scale.
 **Refuted if:** the float32 norm differs by > 10% (arithmetic artifact), or earlier writes shift the float32 logits by
 > 10% (they would matter at full precision).
 
+**Outcome (2026-09-21, round 3):** CONFIRMED. float32 vs. bf16 norm: 6.394e11 vs. 6.418e11, 2.2104e12 vs. 2.2116e12,
+1.7612e12 vs. 1.7525e12 (all within 0.5%). Earlier writes change the float32 logits by ≤ 2.2e-5 on a scale of 12–24.
+
 ---
 
 ### P13: With the load-bearing layers kept on, LI takes a minor part in copying and carries some far context
@@ -280,6 +295,11 @@ gap falls to between 0.5 and 0.95 (L2 alone gave 0.82 in round 2), and it remove
 **Refuted if:** healthy `-li` leaves 10,000-gap copying ≥ 0.95 (LI plays no part), or kills it ≤ 0.3 (LI is a
 main copier); or `-li` removes more of the context benefit than `-attn`. If `-li` is still broken, UNTESTABLE.
 
+**Outcome (2026-09-21, round 3):** COPYING PART CONFIRMED; CONTEXT PART NOT RUN (out of memory on a 40 GB GPU).
+Load-bearing on this run: L0, L1, L4, L9, L29, L30. `-li` (keeping those on) is healthy (0.528, not broken) with copying
+0.986 / 0.944 / 0.556 at gaps 100 / 1,000 / 10,000, inside the predicted 0.5–0.95 at 10,000. `-attn`: 0.253 / 0.244 /
+0.247 (≤ 0.3, confirmed).
+
 ---
 
 ### P14: Block 30 reads locally, mostly from the latest writes
@@ -291,6 +311,9 @@ back (block 30's filters reach ~4 letters). Blocks 28–29 (the largest writes e
 absolute attribution.
 
 **Refuted if:** completeness error > 25% (the method fails here), or most attribution comes from > 16 letters back.
+
+**Outcome (2026-09-21, round 3):** NOT RUN. It crashed on a bug: Vortex loads weights inside torch.inference_mode(),
+and autograd rejects those tensors. Fixed (`interface._autograd_safe`, with a reproduction test).
 
 ---
 
@@ -304,6 +327,15 @@ for at least 4 of 5 variants.
 **Refuted if:** the fraction stays ≥ 0.5 past block 20 for most variants (the signal stays at the site until late),
 or it falls below 0.5 already at block 0.
 
+**Outcome (2026-09-21, round 3):** PARTLY REFUTED. The signal leaves the site even earlier than predicted.
+- "< 0.5 by block 10": held for 5/5 variants.
+- "≥ 0.9 through block 2": held for 0/5.
+- The refutation condition "below 0.5 already at block 0" was met for 2/5 (41256881: 0.09; 41256880: 0.07), and the
+  FUNC variant was at 0.50.
+
+Corrected model: mutation effects are handed to neighbouring positions very early, either in block 0 directly or by
+blocks 4–7.
+
 ---
 
 ### P16: ATG and the stop codons rank high among all 64 three-letter words
@@ -315,6 +347,11 @@ or it falls below 0.5 already at block 0.
 **Refuted if:** ATG and all three stops rank below the median (then round 2's "codon detectors" were generic
 3-letter-word detectors).
 
+**Outcome (2026-09-21, round 3):** NOT CONFIRMED. ATG ranks 31/64 (46 channels, exactly the median of 46). Stops: TAA
+#1 (65), TAG #26, TGA #48. Only one stop is in the top 16. The refutation condition is not met (TAA is #1), but the
+reading is that block 0 is a generic 3-letter-word detector bank, and start/stop codons are not special.
+Caveat: 724 dead channels were included in the counts (P17).
+
 ---
 
 ### P17: Total-effect importance catches the channels the main effect missed
@@ -325,3 +362,8 @@ or it falls below 0.5 already at block 0.
 matching its `…ATGC` top inputs. Mean total effect peaks within the last 3 positions.
 
 **Refuted if:** channel 263 has near-zero total effect everywhere (then the channel is dead, not combinatorial).
+
+**Outcome (2026-09-21, round 3):** REFUTED FOR CHANNEL 263 / PEAK CONFIRMED.
+- Channel 263 has zero total effect at all 9 positions: it's a dead channel, and 724 channels (18%) are.
+- Mean total effect peaks at the current letter (0.309) and 2 back (0.301), which is within the last 3 positions.
+- The indices sum to 1.75 on average, meaning strong letter-combination effects.

@@ -62,3 +62,28 @@ def test_rank_all_words():
     rows = motifs.rank_all_words(md)
     assert len(rows) == 64 and rows[0]["rank"] == 1
     assert next(r for r in rows if r["word"] == "ATG")["controlled"] >= 1
+
+
+def test_chunked_filter_is_bit_identical(hm):
+    from marv_hyena import memory
+
+    filt = hm.hyena_filter(2)  # LI block in the tiny model
+    ref, *_ = type(filt).compute_filter(filt, 300, filt.log_poles.device)
+    new, *_ = memory.chunked_compute_filter(filt, 300, filt.log_poles.device, chunk=5)
+    assert ref.shape == new.shape and torch.equal(ref.float(), new)
+
+
+def test_attribution_survives_weights_loaded_in_inference_mode():
+    """Round 3 on the real Evo 2 failed with 'Inference tensors cannot be saved for backward':
+    vortex's loader casts weights inside torch.inference_mode(). Reproduce that, then check the fix."""
+    from tiny_hyena import make_tiny
+
+    m = make_tiny(seed=3)
+    with torch.inference_mode():  # what vortex.load_checkpoint -> to_bfloat16_except_pr_lc does
+        for p in m.parameters():
+            p.data = p.data.clone()
+    assert next(m.parameters()).is_inference()
+    hm2 = mh.HyenaModel(m)
+    seq = "ACGT" * 60
+    a = interface.block_input_attribution(hm2, seq, 200, layer=6, steps=16)
+    assert a.completeness_error < 0.05

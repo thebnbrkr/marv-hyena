@@ -77,6 +77,9 @@ class HyenaModel:
             noflash.prepare()
         from evo2 import Evo2
 
+        from . import memory
+
+        memory.install()  # chunked LI filter build: same numbers, fits long contexts on a 40 GB GPU
         return cls.from_evo2(Evo2(model_name, **kwargs))
 
     # ------------------------------------------------------------ structure

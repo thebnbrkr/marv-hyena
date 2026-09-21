@@ -33,6 +33,56 @@ Our main tool, **ablation**, is like replacing one service with a **stub that al
 response**. If something downstream breaks, that service was doing it. One trap matters in everything below: if you stub
 a service that *everything* depends on, *everything* breaks, and you learn nothing specific.
 
+## Current picture: how Evo 2 7B works (living summary)
+
+*This section gets rewritten as we learn. The dated entries below are the permanent record it's built from.*
+
+Follow one position of DNA through the 32 blocks:
+
+1. **Reading the letters (block 0, SE, load-bearing).** About 3,400 live detector channels each look at the last
+   9 letters, weighted toward the nearest ~6. They respond to letter **combinations**, not single letters, and they
+   cover all 64 three-letter words roughly evenly. They're generic "word" detectors: start and stop codons aren't
+   special. 18% of the channels (724) are dead. *(Findings 4, 10, 15, 16)*
+2. **Early hand-off (blocks 0–7).** A mutation's effect is passed to the neighbouring positions here: sometimes in
+   block 0 itself, otherwise by blocks 4–7. After block 7 nothing is left to transfer at the mutated position. Three
+   of the six load-bearing layers sit here (L0, L1, L4), which suggests an essential early encoding stage.
+   *(Findings 6, 13, 14)*
+3. **Reading frame (MR layers).** The medium 128-letter layers carry the 3-letter codon rhythm inside genes. Remove
+   them and accuracy becomes flat across codon positions. *(Finding 13; supersedes finding 8, which saw only
+   single layers)*
+4. **Look-up and copy (attention, mainly L3; LI helps at long range).** Exact repeats are recognised at any distance,
+   from 100 to 10,000 letters. Attention is essential; the LI layers (especially L2) help only at long range.
+   Copying is its own circuit: it survives even when ordinary reading is broken (e.g. with L1 removed).
+   *(Findings 1, 7, 13)*
+5. **Far context (tentative: attention).** 50,000 letters of upstream DNA help only slightly (~0.01–0.02 nats per
+   letter), and removing attention erases that. The fair LI test is still pending. *(Finding 9)*
+6. **What "long" LI layers really do.** Most LI filter channels reach only 4–7 letters; a few reach thousands. That's
+   consistent with LI helping long-range copying without being the main long-range channel. L9 is load-bearing.
+   *(Findings 3, 13)*
+7. **The funnel (blocks 28–30).** Output sizes escalate: ~10⁴ (block 28) → ~10⁶ (block 29) → ~10¹² (block 30).
+   Block 30 (LI, looking ~4 letters back) produces the representation the output reads, and **only** that. This is
+   built into the weights, not a rounding effect. Block 31 and block 30's MLP have no effect. *(Findings 2, 5, 12)*
+8. **The middle (roughly blocks 10–28).** Individually expendable: removing any one costs little, so the work is
+   spread out or redundant. *(Finding 6)*
+
+**Confidence.**
+- Solid (causal, replicated across rounds, or exact from the weights): 4 (copying), 6 (LI reach), 7 (the funnel).
+- Measured once, needs replication: 1 (the enumeration is exact, but the "generic words" reading is one analysis), 2
+  (5 variants), 3 (one gene window), 8.
+- Tentative: 5 (far context via attention).
+
+**Not yet known:**
+- what block 30 actually reads (R3.4, crashed; rerun pending);
+- what the redundant middle layers compute;
+- whether LI carries far context;
+- whether this holds for other checkpoints (evo2_7b_262k, evo2_7b_base);
+- how it lines up with the Goodfire SAE features at layer 26.
+
+**Superseded along the way (kept in the record):**
+- finding 8 ("codon rhythm is spread out") was only true one layer at a time; as a family, MR carries it;
+- finding 10's "combinatorial channel 263" was a dead channel (finding 16).
+
+
 ---
 
 ## 2026-09-21: Round 0, getting it to run on Colab
@@ -377,6 +427,179 @@ running.
 
 Found while building: the round-2 gene window (200,000–208,192) has no 60-letter intergenic stretch, so round 3 picks
 its intergenic positions from a wider window.
+
+---
+
+## 2026-09-21: Round 3, measuring at the bottleneck (Evo 2 7B, **40 GB** A100)
+
+Smoke checks 8/8. This session got the 40 GB A100 (earlier rounds had 80 GB), which caused one failure. Raw outputs:
+`results/round3/`.
+
+### What ran and what didn't
+
+| step | status | why |
+|---|---|---|
+| R3.1 float32 check | ✅ ran | |
+| R3.2 load-bearing map | ✅ ran | |
+| R3.3 fair family tests: copying, codons | ✅ ran | |
+| R3.3 far-context test (5 genes × 50k letters) | ❌ out of memory | Vortex builds the long-LI filter as one 4096 × 16 × 51,000 float32 array (12.5 GB). A chunked, bit-identical replacement was pasted in, but the failed cell was never rerun afterwards. Now built into the package (`memory.py`) |
+| R3.4 what block 30 reads | ❌ crashed (my bug) | Vortex's loader converts weights to bf16 inside `torch.inference_mode()`, making them "inference tensors" that autograd refuses to use. The tiny test model never went through that loader. Fixed (`interface._autograd_safe`), with a test that reproduces the exact error |
+| R3.5 mutation depth | ✅ ran | |
+| R3.6 64-word ranking, total effect | ✅ ran | |
+
+### Finding 12: the block-30 blow-up is in the weights (P12 confirmed)
+
+Recomputing block 30 in float32 from the same input gives the same size (6.39 × 10¹¹ vs. 6.42 × 10¹¹ in bf16, within
+0.5%). At full float32 precision, adding back every earlier write changes the logits by ~0.00002 on a scale of 12–24,
+about 0.0001%. So earlier writes are irrelevant **at any precision**. It's not a bf16 artifact: the network's output
+really is a function of block 30's output.
+
+### Finding 13: fair family tests finally work (all healthy)
+
+The load-bearing map on this run's health sequence: **L0, L1, L4, L9, L29, L30**. L4 is new: it scored 0.327 on this
+genome stretch vs. 0.799 on round 2's gene window, so borderline layers depend on the test sequence. With those kept
+on, **no family ablation broke the model** for the first time:
+
+| switched off (load-bearing kept on) | health | copy @100 | @1k | @10k | codon rhythm |
+|---|---|---|---|---|---|
+| nothing | 0.696 | 1.000 | 1.000 | 0.997 | 0.251 |
+| SE (7 layers) | 0.454 | 1.000 | 1.000 | 0.989 | 0.109 |
+| MR (7 layers) | 0.425 | 1.000 | 1.000 | 1.000 | **−0.016** |
+| LI (7 layers) | 0.528 | 0.986 | 0.944 | **0.556** | 0.177 |
+| attention (5 layers) | 0.571 | **0.253** | **0.244** | **0.247** | 0.145 |
+
+(The codon-rhythm health numbers come from the gene window: 0.859 / 0.571 / 0.461 / 0.624 / 0.670.)
+
+- **Copying = attention (essential) + LI (helps at long range).** Without the non-load-bearing LI layers, copying
+  at 10,000 letters drops to 0.556 while short-range copying survives. SE and MR play no part in copying: 1.000
+  even though the model is degraded.
+- **The codon rhythm (reading frame) lives mainly in MR**, the 128-letter layers. Removing them flattens accuracy
+  across the three codon positions (0.450 / 0.472 / 0.477) while the model still predicts well above chance. SE
+  removal halves the rhythm; LI and attention remove less. Round 1's guess (SE) was wrong. It fits biology loosely:
+  MR's 128-letter window spans ~40 codons, enough context to lock onto the frame.
+
+### Finding 14: a mutation's signal leaves the mutated position within the first ~8 blocks
+
+Swap the entire residual at the mutation site from the mutated run into the normal run, after each block. The number
+is the share of the mutation's downstream effect that moves with it:
+
+| variant | depth −1 (the letter) | after block 0 | 2 | 4 | 5 | 7 | 10 |
+|---|---|---|---|---|---|---|---|
+| 41256881 T>C (LOF) | 1.00 | **0.09** | 0.05 | 0.03 | 0.02 | 0.02 | 0.01 |
+| 41256880 C>G (LOF) | 1.00 | **0.07** | 0.03 | 0.03 | 0.03 | 0.02 | 0.02 |
+| 41215936 A>C (LOF) | 1.00 | 0.88 | 0.76 | 0.58 | **0.28** | 0.12 | 0.09 |
+| 41219643 G>C (LOF) | 1.00 | 0.88 | 0.88 | 0.79 | 0.74 | **0.04** | 0.05 |
+| 41219636 A>G (FUNC) | 1.00 | 0.50 | 0.10 | −0.08 | −0.09 | −0.05 | −0.06 |
+
+Reading, in software terms: once a block has run, the positions after the mutation have already *read* the mutated
+letter and carry its effect themselves, so swapping the site afterwards transfers nothing new.
+- For two variants, the hand-off happens **in block 0 itself**. Neighbouring positions read the mutated letter
+  directly through block 0's 9-letter window.
+- For the others, the site keeps carrying the signal through blocks 4–7, then hands it off.
+- In all 5 cases the signal has left the site by block 7. Mutation effects are passed forward **early and locally**.
+
+### Finding 15: block 0 is a generic 3-letter-word detector bank; codons aren't special
+
+With the composition control, **every** 3-letter word has detector channels: median 46 across all 64 words. The
+start codon ATG ranks **31/64** with 46, exactly the median. Stops: TAA #1 (65), TAG #26 (50), TGA #48 (41). Their
+reverse complements (the same signals on the other strand): TTA #5, CTA #19, CAT #51, TCA #60. The top of the list
+(TAA, GTG, AAT, CCT, TTA, ATA…) is mixed, and AT-rich words do well even after the control.
+
+### Finding 16: 724 block-0 channels are dead, and round 2's "ATG channel" was one of them
+
+Round 2's channel 263 (top inputs ending in `…ATGC`) has **zero total effect at every position**. Its output is
+constant, or too small to register, across all 262,144 inputs. **724 channels (18%)** show zero effect this way. Their
+"top inputs" were meaningless orderings of near-identical values. Round 2's "combinatorial channel" story was wrong:
+the channel is dead. Implication: motif counts should exclude dead channels, which round 4 will do.
+
+Also, the total-effect indices sum to **1.75 on average** (a purely additive channel sums to 1.0). So block 0's live
+channels respond strongly to letter **combinations**, as expected from Hyena's multiplicative gating. Total effect
+peaks at the current letter (0.31) and 2 letters back (0.30).
+
+### What stayed open in round 3
+
+- Far-context test: out of memory. Rerun with the chunked filter.
+- What block 30 reads (R3.4): crashed on a bug, now fixed. Rerun.
+- Motif counts include dead channels. Filter them.
+
+---
+
+## 2026-09-21: Literature review, what the papers taught us
+
+We read the closest papers to see whether our work is new and what to borrow. Short version: **nobody has done causal,
+operator-level analysis of Evo 2 or any trained Hyena model**, and a 2026 review says that's exactly the field's gap.
+Several papers hand us concrete experiments and controls.
+
+### What each paper says, and what we take from it
+
+| Paper | What it found | What it means for us |
+|---|---|---|
+| **Evo 2** (Brixi et al., Nature 2026; bioRxiv 2025.02.18.638918) | Finds a 100-letter "needle" in 1M letters of random DNA; best zero-shot splice-variant prediction; SAE features at layer 26, including **f/24278, which fires on frameshifts and premature stop codons**. No mechanism, no ablations, nothing on activation sizes. | Our copying test is a mini needle-in-a-haystack, and we found the mechanism (attention, with LI at long range). f/24278 is a bridge to biological "why": check it on harmful BRCA1 variants, then switch it off. |
+| **Goodfire, "Interpreting Evo 2"** | SAEs on several layers; layer 26 chosen because its features looked most biological. They *guess* late features appear because a 4-letter vocabulary needs only a few final layers for output. They say steering Evo 2 is much harder than steering LLMs. A methods paper is coming. | Our block-30 funnel is measured evidence for their guess. Hypothesis: the 28 → 30 funnel (×10⁸ growth, block 30 takes over) may be *why* steering from layer 26 is hard. Watch for their methods paper (possible overlap). |
+| **"What Attention Recalls and Recurrence Controls"** (arXiv 2609.04434, text hybrids: Qwen3.5, Falcon-H1, Jamba) | Keep only attention's memory: exact lookup survives (64–98%). Keep only the recurrent state: lookup is 0%, but language and style survive (70–80%). Attention is an "addressable store"; recurrence is a "compressed prior". | The same split as our copying result, in text. **New experiment:** Vortex keeps separate generation states for attention and each Hyena type, so we can keep one and drop the other, or swap them between two organisms. Does Hyena carry "what kind of genome" (codon usage, GC content) while attention carries exact lookup? Their caveat applies to us: mixed states are unnatural, so a collapse can be partly artifact. |
+| **"ICL Beyond Transformers"** (arXiv 2510.23006, Mamba/Hymba/Zamba2) | In hybrids, in-context learning is driven by specific *heads* in attention layers, mostly the middle ones, found by measuring each head's causal effect. | Go one level finer: **which heads in L3 do Evo 2's copying?** Are there induction heads in a DNA model? |
+| **Massive activations** (Sun et al., COLM 2024, arXiv 2402.17762) | A few single values (~10³–10⁴, 1,000–100,000× typical) appear early (layer ~2) on special tokens, stay **constant regardless of input**, and fade at the end. Zeroing them breaks the model; replacing them with their mean is harmless (they act as hidden attention biases). Transformers and ViTs only. | The paper reviewers will compare block 30 to. Ours differs: the whole vector, late, every position measured, a Hyena model, and **mean-replacing block 30 breaks the model**, so it carries information and isn't a constant bias. **Missing checks:** how many dimensions carry block 30's size; whether it's a large constant part plus a small informative part; block 30 at position 0. |
+| **"Massive activations are architecturally robust"** (arXiv 2606.20743, small transformers) | Given a separate output channel, huge values rebuild themselves in whatever representation the model decodes from, which points to a function, not an accident. | Doesn't cover our case (early layers, start token). But it supports a *functional* reading of block 30, which is Evo 2's decoding representation. |
+| **Review: "What Do Biological Foundation Models Compute?"** (bioRxiv 2026.03.04.709491) | Three levels: representational → computational → causal and mechanistic. The field is "stuck at level 1"; causal patching exists in one protein study; Evo 2's architecture hasn't been analysed mechanistically. Calls for null models, non-circular validation, experimental evidence; SAE features are unstable (~30% survive a change of seed). | States our gap in writing: we work at levels 2–3. **Controls we still owe:** a random-weights baseline (would untrained Hyena gates produce 3-letter-word detectors anyway?); causal validation of any SAE feature we use; caution with genome-annotation matching. |
+
+### Learnings
+
+1. **The copying result is an extension, not a discovery.** "Attention does lookup" is established in text hybrids.
+   Ours is the first in Hyena and DNA. Frame it as confirming and extending, and as the mechanism behind Evo 2's
+   needle-in-a-haystack result.
+2. **Block 30 must be separated carefully from massive activations.** Current evidence says it's different
+   (information-carrying), but two cheap checks are needed first.
+3. **Evo 2's MLPs are bilinear** (identity activation after block 0). There's a whole method for exactly this layer
+   type: "Bilinear MLPs enable weight-based mechanistic interpretability" (Pearce et al., ICLR 2025, arXiv
+   2410.08417), which reads features straight from the weights by eigendecomposition. Michael Pearce is also an
+   Evo 2 co-author. This is the most direct route to MARV-style weight-space analysis of Evo 2's MLPs.
+4. **The LI filter parameterisation (poles and residues)** comes from "Laughing Hyena Distillery" (Massaroli et al.,
+   NeurIPS 2023, arXiv 2310.18780). That's the theory behind our weight-read reach measurements.
+5. **Controls matter to reviewers:** random-weights baselines, SAE seed instability, circular annotation matching.
+
+### New items for the full run
+
+| Check | From |
+|---|---|
+| Block 30: dimensions carrying its size; constant vs. varying part; remove only the constant part; position 0 | Sun et al. |
+| Random-weights baseline for the block 0 enumeration | the review |
+| SAE feature f/24278 on harmful BRCA1 variants, then switch it off | the Evo 2 paper |
+| Keep-only / swap generation states: attention vs. Hyena | arXiv 2609.04434 |
+| Head-level search for copying heads in L3 | arXiv 2510.23006 |
+| Weight-based analysis of Evo 2's bilinear MLPs | Pearce et al. |
+
+---
+
+## 2026-09-21: What the papers can't tell us; the cross-model plan
+
+We read the full Hyena Hierarchy and HyenaDNA papers to see whether they already answer "do other Hyena models have a
+funnel?" and "does attention do the copying everywhere?". They don't.
+
+- **The papers show capability, not use.**
+  - Small Hyena-only models *trained on a synthetic recall task* reach 97.2% recall at 131k tokens (Hyena
+    Hierarchy).
+  - Evo 2 finds a needle in 1M letters (Evo 2 paper).
+  - HyenaDNA needs 450k–1M letters for species classification.
+
+  None of them opens a large trained model to see *which part* does the work. Our Evo 2 result is the missing half:
+  Hyena **can** copy, yet the trained hybrid **routes copying through attention**, with LI only helping at long range.
+  "Capable but not used" is a finding in itself.
+- **No paper reports per-layer activation sizes for any Hyena model**, so the block-30 funnel is unexamined everywhere.
+  Evo 2's README says the 1B/20B/40B models need FP8 "for numerical accuracy", a hint at numerical issues that isn't
+  explained.
+- **Why:** these are capability and engineering papers (benchmarks, speed, synthetic tests on toy models).
+  Interpretability of trained Hyena models is essentially undone.
+
+### Cross-model plan: the same tests on other Hyena models
+
+| Model | Architecture (checked) | Hardware | What it tests |
+|---|---|---|---|
+| **HyenaDNA** (0.44M–6.6M params, 2–8 layers, up to 1M context) | Hyena only, **no attention**; filters produced by a small network | T4, even CPU | Does a pure-Hyena DNA model copy at all, and which layer does it? Filter reach; funnel (few layers) |
+| **Evo 1** (7B; `evo-1-8k-base`, `evo-1-131k-base`; Apache-2.0) | 32 blocks: **attention at 8, 16, 24 only**, 29 Hyena blocks of one long-filter type (modal, state size 8), GELU MLPs; trained on prokaryotes and phages | A100 (or a 24 GB card for short inputs); loads through HF `transformers` with custom code | The closest comparison to Evo 2: does it have a funnel? Does copying go through its 3 attention layers? Load-bearing map; mutation depth. E. coli is in-distribution. |
+| **StripedHyena-7B** (text) | Same code family as Evo 1 | A100 | Is the operator split the same in text? |
+
+Adapter effort: Evo 1 and StripedHyena-7B share one adapter (a different module layout from Vortex, same ideas).
+HyenaDNA needs its own adapter, because its filters come from a small network rather than stored weights.
 
 ---
 

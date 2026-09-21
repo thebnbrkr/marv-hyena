@@ -49,6 +49,22 @@ against the real module output captured in the same forward pass. If a
 check fails, the numbers mean nothing. Typically that means the installed
 Vortex computes something differently from what this code assumes.
 
+## What we've found so far (Evo 2 7B)
+
+Short version, as of round 3. The reasoning, numbers and mistakes are in [`RESEARCH_LOG.md`](RESEARCH_LOG.md), and
+predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
+
+- **One block decides.** Block 30's output is ~10⁵× larger than any other, so the prediction is a function of block
+  30 alone. It's built into the weights (the same in float32), and block 31 has no effect.
+- **Attention does exact copying** at every distance. The LI layers help at long range (without them, copying at
+  10,000 letters drops from 99.7% to 55.6%).
+- **The reading frame (codon rhythm) lives in the MR (medium) layers**, not the SE (short) ones.
+- **Mutations are judged early and locally.** Their effect leaves the mutated position within blocks 0–7.
+- **"Long" LI filters are mostly short** (4–7 letters), with a few long-reaching channels.
+- **Block 0 is a generic bank of 3-letter-word detectors.** Start and stop codons aren't special, and 18% of its
+  channels are dead.
+- **Six load-bearing layers** (L0, L1, L4, L9, L29, L30); every other single layer is individually expendable.
+
 ## Run it on Colab
 
 - **Round 1** (the first full pass): `notebooks/marv_hyena_colab.ipynb`.
@@ -74,7 +90,7 @@ pip install evo2                  # on Python 3.13 use: pip install --ignore-req
 pip install flash-attn==2.8.0.post2 --no-build-isolation   # optional; skipped automatically if absent
 # 2. this repo
 cd marv-hyena && pip install -e .
-python -m pytest -q          # 29 tests on a tiny CPU model, runs anywhere
+python -m pytest -q          # 37 tests on a tiny CPU model, runs anywhere
 ```
 
 A100s have no FP8, so only the 7B checkpoints run (`evo2_7b`, `evo2_7b_262k`,
@@ -141,12 +157,14 @@ marv_hyena/
   vindex.py      MLP vindex, diff, neuron_acts, label_units
   motifs.py      receptive_field, enumerate_block0
   noflash.py     run Evo 2 without the flash-attn package (PyTorch SDPA instead)
+  memory.py      chunked long-LI filter build: bit-identical, fits 50k-letter inputs on a 40 GB GPU
+  interface.py   integrated-gradients attribution at a bottleneck block's input (round 3)
   diagnostics.py write_norms, find_bottlenecks, health (round 2)
   checks.py      run_smoke_checks (shared by scripts/smoke_test.py and the notebook)
   experiments.py copy_test, codon_test, context_test (the PREDICTIONS.md experiments)
 notebooks/       marv_hyena_colab.ipynb: the whole pipeline on a Colab A100
 scripts/         smoke_test, filter_reach, run_copy_test, block0_motifs, explain_variant
-tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 29 tests
+tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 37 tests
 PREDICTIONS.md   pre-registered predictions; outcomes get appended, never edited
 RESEARCH_LOG.md  what we ran, what happened, what went wrong (plain language)
 ```
