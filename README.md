@@ -51,6 +51,11 @@ Vortex computes something differently from what this code assumes.
 
 ## Run it on Colab
 
+- **Round 1** (the first full pass): `notebooks/marv_hyena_colab.ipynb`.
+- **Round 2** (redesigned after round 1; see [`RESEARCH_LOG.md`](RESEARCH_LOG.md)):
+  [`notebooks/marv_hyena_round2_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round2_colab.ipynb)
+
+
 Open [`notebooks/marv_hyena_colab.ipynb`](notebooks/marv_hyena_colab.ipynb) with the badge above. Choose
 **Runtime → Change runtime type → A100 GPU** and turn on **High-RAM**, then run the cells top to bottom. The notebook
 installs Evo 2 and marv-hyena and downloads its data (the E. coli genome and the BRCA1 variants from the evo2 repo).
@@ -69,7 +74,7 @@ pip install evo2                  # on Python 3.13 use: pip install --ignore-req
 pip install flash-attn==2.8.0.post2 --no-build-isolation   # optional; skipped automatically if absent
 # 2. this repo
 cd marv-hyena && pip install -e .
-python -m pytest -q          # 22 tests on a tiny CPU model, runs anywhere
+python -m pytest -q          # 29 tests on a tiny CPU model, runs anywhere
 ```
 
 A100s have no FP8, so only the 7B checkpoints run (`evo2_7b`, `evo2_7b_262k`,
@@ -136,12 +141,14 @@ marv_hyena/
   vindex.py      MLP vindex, diff, neuron_acts, label_units
   motifs.py      receptive_field, enumerate_block0
   noflash.py     run Evo 2 without the flash-attn package (PyTorch SDPA instead)
+  diagnostics.py write_norms, find_bottlenecks, health (round 2)
   checks.py      run_smoke_checks (shared by scripts/smoke_test.py and the notebook)
   experiments.py copy_test, codon_test, context_test (the PREDICTIONS.md experiments)
 notebooks/       marv_hyena_colab.ipynb: the whole pipeline on a Colab A100
 scripts/         smoke_test, filter_reach, run_copy_test, block0_motifs, explain_variant
-tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 22 tests
+tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 29 tests
 PREDICTIONS.md   pre-registered predictions; outcomes get appended, never edited
+RESEARCH_LOG.md  what we ran, what happened, what went wrong (plain language)
 ```
 
 ## Status and limits

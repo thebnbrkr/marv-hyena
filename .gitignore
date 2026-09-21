@@ -7,3 +7,5 @@ __pycache__/
 *.json
 !tests/**/*.json
 .DS_Store
+
+!results/**/*.json

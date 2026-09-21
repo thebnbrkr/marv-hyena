@@ -61,6 +61,11 @@ class MotifDictionary:
     top_vals: np.ndarray  # (H, n_top)
     bottom_kmers: list[list[str]]  # strongest negative responders
     bottom_vals: np.ndarray
+    # (k, H): how much each input position matters to each channel. Exact
+    # main-effect variance over the COMPLETE enumeration: for position p, the
+    # variance across the 4 letters of the mean output given that letter.
+    # Columns sum to 1 (share of the channel's position-attributable variance).
+    position_importance: np.ndarray | None = None
 
     def pwm(self, channel: int, n: int = 100, negative: bool = False) -> np.ndarray:
         """(k, 4) letter frequencies over the channel's top-n k-mers (A, C, G, T)."""
@@ -89,10 +94,13 @@ def enumerate_block0(hm: HyenaModel, k: int | None = None, n_top: int = 200, bat
     bot_i = torch.zeros((H, n_top), dtype=torch.long, device=hm.device)
     total = 4 ** k
     powers = 4 ** torch.arange(k - 1, -1, -1, device=hm.device)
+    letter_sums = torch.zeros((k, 4, H), device=hm.device, dtype=torch.float64)
     for s in range(0, total, batch):
         idx = torch.arange(s, min(s + batch, total), device=hm.device)
         digits = (idx[:, None] // powers[None, :]) % 4
         out = _block0_filter_out(hm, letters[digits])[:, -1].float()  # (B, H)
+        onehot = torch.nn.functional.one_hot(digits, 4).to(torch.float64)  # (B, k, 4)
+        letter_sums += torch.einsum("bpl,bh->plh", onehot, out.double())
         v = torch.cat([top_v, out.T], 1)
         i = torch.cat([top_i, idx[None].expand(H, -1)], 1)
         top_v, sel = v.topk(n_top, dim=1)
@@ -106,10 +114,57 @@ def enumerate_block0(hm: HyenaModel, k: int | None = None, n_top: int = 200, bat
     def to_str(n: int) -> str:
         return "".join(BASES[(n // 4 ** (k - 1 - j)) % 4] for j in range(k))
 
+    means = letter_sums / (total // 4)  # every letter appears total/4 times at each position
+    imp = means.var(dim=1, unbiased=False)  # (k, H)
+    imp = (imp / imp.sum(0, keepdim=True).clamp_min(1e-30)).float().cpu().numpy()
+
     return MotifDictionary(
         k=k,
         top_kmers=[[to_str(int(n)) for n in row] for row in top_i.cpu()],
         top_vals=top_v.cpu().numpy(),
         bottom_kmers=[[to_str(int(n)) for n in row] for row in bot_i.cpu()],
         bottom_vals=bot_v.cpu().numpy(),
+        position_importance=imp,
     )
+
+
+@dataclass
+class MotifHit:
+    channel: int
+    observed: float  # share of the channel's top-n k-mers containing the motif
+    expected: float  # chance of that, given only the channel's letter composition
+    enrichment: float
+
+
+def _p_contains(motif: str, comp: np.ndarray, k: int) -> float:
+    """P(a random k-mer with letter frequencies `comp` contains `motif`),
+    approximating occurrences at different offsets as independent."""
+    q = float(np.prod([comp[BASES.index(ch)] for ch in motif]))
+    return 1.0 - (1.0 - q) ** max(1, k - len(motif) + 1)
+
+
+def motif_channels(md: MotifDictionary, motif: str, n_top: int = 50, min_frac: float = 0.8,
+                   min_enrichment: float = 3.0) -> tuple[list[MotifHit], list[MotifHit]]:
+    """Channels whose top k-mers contain `motif`, with a composition control.
+
+    Round 1 counted a channel as a 'TAA channel' if >= 80% of its top k-mers
+    contained TAA. But an AT-rich channel's top k-mers contain TAA often by
+    chance. Here `expected` is how often TAA would show up in random k-mers
+    with the channel's OWN letter composition (conservative: that composition
+    includes the motif's letters). Returns (raw_hits, controlled_hits);
+    controlled also requires observed/expected >= min_enrichment.
+    """
+    raw, ctrl = [], []
+    for c in range(len(md.top_kmers)):
+        kmers = md.top_kmers[c][:n_top]
+        obs = float(np.mean([motif in s for s in kmers]))
+        if obs < min_frac:
+            continue
+        joined = "".join(kmers)
+        comp = np.array([joined.count(b) for b in BASES], dtype=float) / len(joined)
+        exp = _p_contains(motif, comp, md.k)
+        hit = MotifHit(c, obs, exp, obs / max(exp, 1e-9))
+        raw.append(hit)
+        if hit.enrichment >= min_enrichment:
+            ctrl.append(hit)
+    return raw, ctrl

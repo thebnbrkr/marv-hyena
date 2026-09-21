@@ -58,10 +58,33 @@ def downstream_metric(start: int, span: int):
     return metric
 
 
-def explain_variant(hm: HyenaModel, v: Variant, span: int = 200, components=None) -> PatchSweep:
+def explain_variant(hm: HyenaModel, v: Variant, span: int = 200, components=None,
+                    at: str = "all") -> PatchSweep:
     """Patch each component (and each operator-type group) from the ALT run into
     the REF run and report how much of the downstream disturbance it carries.
-    A component restoring ~100% alone carries the whole effect of the mutation."""
+
+    at="all":     patch every position. Round 1 lesson: any component on the
+                  path into an output bottleneck (block 30 in Evo 2 7B) then
+                  "restores 100%" trivially -- total effect, not localisation.
+    at="variant": patch only the mutated position. Asks which components'
+                  writes AT THE MUTATION SITE carry the change onward.
+    """
+    if at not in ("all", "variant"):
+        raise ValueError("at must be 'all' or 'variant'")
     metric = downstream_metric(v.index + 1, span)
+    positions = None if at == "all" else [v.index]
     return patch_sweep(hm, source_seq=v.alt_window, target_seq=v.ref_window, metric=metric,
-                       components=components, groups=kind_groups(hm))
+                       components=components, groups=kind_groups(hm), positions=positions)
+
+
+@torch.no_grad()
+def downstream_effect(hm: HyenaModel, v: Variant, span: int = 200) -> float:
+    """metric(alt) - metric(ref) on the letters after the variant. Patching
+    fractions are only meaningful when this is well away from zero (round 1's
+    FUNC variant had 0.25, and its +-200% 'fractions' were noise)."""
+    metric = downstream_metric(v.index + 1, span)
+    out = []
+    for w in (v.ref_window, v.alt_window):
+        ids = hm.ids(w)
+        out.append(metric(hm.logits(ids), ids))
+    return out[1] - out[0]
