@@ -55,6 +55,78 @@ def find_bottlenecks(hm: HyenaModel, seq: str, positions: list[int], min_share: 
     return sorted({r.block for r in write_norms(hm, seq, positions) if r.block is not None and r.share >= min_share})
 
 
+def find_load_bearing(hm: HyenaModel, seq: str, parts=("mixer",)) -> list[dict]:
+    """Round 3: ablate each single component (mean-ablation) and report health.
+    Round 2 found five mixers whose removal alone breaks Evo 2 7B (L0, L1, L9,
+    L29, L30); family ablations must keep these on or they just measure a
+    broken model."""
+    from .intervene import mean_ablate, mean_writes
+
+    ids = hm.ids(seq)
+    out = []
+    for b in range(hm.n_blocks):
+        for p in parts:
+            with mean_ablate(hm, mean_writes(hm, ids, [(b, p)])):
+                h = health(hm, seq)
+            out.append({"block": b, "kind": hm.kind(b), "part": p, **h})
+    return out
+
+
+@torch.no_grad()
+def precision_check(hm: HyenaModel, seq: str, block: int, position: int | None = None) -> dict:
+    """Round 3: is the bottleneck block's huge write a property of the WEIGHTS
+    or of bf16 arithmetic? Recompute that block's mixer write in float32 from
+    the same input and compare norms; then recompute the logits in float32 with
+    and without every earlier write, to see whether those writes would matter
+    at full precision."""
+    blk = hm.block(block)
+    position = len(seq) - 1 if position is None else position
+    store = {}
+
+    def pre(_m, args):
+        store["u"] = args[0].detach()
+
+    def out_hook(_m, _i, out):
+        store["w"] = out.detach()
+
+    h1 = blk.register_forward_pre_hook(pre)
+    h2 = hm.component(block, "mixer").register_forward_hook(out_hook)
+    try:
+        hm.model(hm.ids(seq))
+    finally:
+        h1.remove()
+        h2.remove()
+    u, w_bf = store["u"], store["w"]
+
+    dtypes = {n: p.dtype for n, p in blk.named_parameters()}
+    try:
+        blk.float()
+        z = blk.projections(blk.pre_norm(u.float()))
+        z = z[0] if isinstance(z, tuple) else z
+        y, _ = blk.filter(z)
+        w32 = blk.out_filter_dense(y)
+    finally:
+        for n, p in blk.named_parameters():
+            p.data = p.data.to(dtypes[n])
+
+    W = hm.unembed_weight().float()
+    scale, eps = hm.final_norm_params()
+
+    def logits_of(r):
+        r = r.float()
+        return (scale.float() * r / (r.norm() * hm.hidden_size ** -0.5 + eps)) @ W.T
+
+    full = logits_of(u[0, position].float() + w32[0, position])
+    alone = logits_of(w32[0, position])
+    return {
+        "norm_bf16": float(w_bf[0, position].float().norm()),
+        "norm_fp32": float(w32[0, position].norm()),
+        "norm_input_residual": float(u[0, position].float().norm()),
+        "logit_change_from_earlier_writes_fp32": float((full - alone).abs().max()),
+        "logit_scale": float(full.abs().max()),
+    }
+
+
 @torch.no_grad()
 def health(hm: HyenaModel, seq: str) -> dict:
     """Next-letter accuracy and mean log-prob on `seq` (use ordinary genome).

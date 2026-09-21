@@ -78,6 +78,63 @@ def explain_variant(hm: HyenaModel, v: Variant, span: int = 200, components=None
 
 
 @torch.no_grad()
+def residual_patch_by_depth(hm: HyenaModel, v: Variant, span: int = 200) -> list[dict]:
+    """Round 3: at what depth does the mutation's information LEAVE the mutated
+    position? For each depth d (-1 = the embedding, i.e. the letter itself;
+    0..n-1 = after block d), copy the ALT run's entire residual at the mutated
+    position into the REF run and measure the downstream metric.
+
+    At d=-1 this reproduces the ALT run exactly (the only difference between
+    the runs is that letter), so fraction == 1. As d grows, later positions
+    have already read the REF residual at the site in blocks <= d, so
+    whatever information moved away from the site by then is NOT transferred,
+    and the fraction falls. Where it falls is where the model moved the signal.
+    """
+    metric = downstream_metric(v.index + 1, span)
+    site = v.index
+    alt_ids, ref_ids = hm.ids(v.alt_window), hm.ids(v.ref_window)
+
+    captured: dict[int, torch.Tensor] = {}
+    handles = []
+
+    def grab(d):
+        def hook(_m, _i, out):
+            x = out[0] if isinstance(out, tuple) else out
+            captured[d] = x[0, site].detach().clone()
+        return hook
+
+    mods = [(-1, hm.model.embedding_layer)] + [(d, hm.block(d)) for d in range(hm.n_blocks)]
+    try:
+        for d, m in mods:
+            handles.append(m.register_forward_hook(grab(d)))
+        alt_logits, _ = hm.model(alt_ids)
+    finally:
+        for h in handles:
+            h.remove()
+    alt_m = metric(alt_logits[0].float(), alt_ids)
+    ref_logits, _ = hm.model(ref_ids)
+    ref_m = metric(ref_logits[0].float(), ref_ids)
+
+    rows = []
+    for d, m in mods:
+        def patch(_m, _i, out, d=d):
+            x = out[0] if isinstance(out, tuple) else out
+            x = x.clone()
+            x[0, site] = captured[d].to(x.device, x.dtype)
+            return (x, *out[1:]) if isinstance(out, tuple) else x
+
+        h = m.register_forward_hook(patch)
+        try:
+            logits, _ = hm.model(ref_ids)
+        finally:
+            h.remove()
+        pm = metric(logits[0].float(), ref_ids)
+        rows.append({"depth": d, "kind": "embed" if d < 0 else hm.kind(d), "metric": pm,
+                     "fraction": (pm - ref_m) / (alt_m - ref_m) if abs(alt_m - ref_m) > 1e-9 else float("nan")})
+    return rows
+
+
+@torch.no_grad()
 def downstream_effect(hm: HyenaModel, v: Variant, span: int = 200) -> float:
     """metric(alt) - metric(ref) on the letters after the variant. Patching
     fractions are only meaningful when this is well away from zero (round 1's

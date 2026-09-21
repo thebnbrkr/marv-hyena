@@ -251,3 +251,77 @@ the full set.
 
 **Outcome (2026-09-21, round 2):** CONFIRMED. AUROC 0.880 on 20 LOF + 20 FUNC variants. Mean delta log-likelihood:
 LOF −0.00458 vs. FUNC −0.00100. Mean downstream effect: −22.3 vs. −4.4 nats.
+
+---
+
+## Round 3 predictions (registered 2026-09-21, before running `notebooks/marv_hyena_round3_colab.ipynb`)
+
+### P12: The block-30 blow-up is in the weights, not the arithmetic
+
+**Test:** R3.1, block 30's mixer write recomputed in float32; logits recomputed in float32 with and without every
+earlier write.
+
+**Prediction:** the float32 norm is within 1% of the bf16 norm in all 3 regions. At float32, adding back every earlier
+write changes the logits by < 1% of their scale.
+
+**Refuted if:** the float32 norm differs by > 10% (arithmetic artifact), or earlier writes shift the float32 logits by
+> 10% (they would matter at full precision).
+
+---
+
+### P13: With the load-bearing layers kept on, LI takes a minor part in copying and carries some far context
+
+**Test:** R3.3, families ablated except the load-bearing layers found in R3.2.
+
+**Prediction:** `-li` (keeping the load-bearing layers) is healthy (not flagged broken). Its copying at the 10,000
+gap falls to between 0.5 and 0.95 (L2 alone gave 0.82 in round 2), and it removes < 50% of the far-context benefit.
+`-attn` still kills copying (≤ 0.3) and removes ≥ 80% of the context benefit.
+
+**Refuted if:** healthy `-li` leaves 10,000-gap copying ≥ 0.95 (LI plays no part), or kills it ≤ 0.3 (LI is a
+main copier); or `-li` removes more of the context benefit than `-attn`. If `-li` is still broken, UNTESTABLE.
+
+---
+
+### P14: Block 30 reads locally, mostly from the latest writes
+
+**Test:** R3.4, integrated-gradients attribution at block 30's input, 3 gene + 3 intergenic positions.
+
+**Prediction:** completeness error < 10% at every position. ≥ 80% of the absolute attribution comes from ≤ 8 letters
+back (block 30's filters reach ~4 letters). Blocks 28–29 (the largest writes entering block 30) get ≥ 50% of the
+absolute attribution.
+
+**Refuted if:** completeness error > 25% (the method fails here), or most attribution comes from > 16 letters back.
+
+---
+
+### P15: A mutation's signal leaves the mutated position within the first ~10 blocks
+
+**Test:** R3.5, residual patching at the mutation site after each block, 5 large-effect BRCA1 variants.
+
+**Prediction:** the fraction of the effect transferred stays ≥ 0.9 through block 2, then falls below 0.5 by block 10
+for at least 4 of 5 variants.
+
+**Refuted if:** the fraction stays ≥ 0.5 past block 20 for most variants (the signal stays at the site until late),
+or it falls below 0.5 already at block 0.
+
+---
+
+### P16: ATG and the stop codons rank high among all 64 three-letter words
+
+**Test:** R3.6, controlled detector counts for all 64 words.
+
+**Prediction:** ATG and at least two of TAA/TAG/TGA rank in the top 16 of 64.
+
+**Refuted if:** ATG and all three stops rank below the median (then round 2's "codon detectors" were generic
+3-letter-word detectors).
+
+---
+
+### P17: Total-effect importance catches the channels the main effect missed
+
+**Test:** R3.6, total-effect index from the full enumeration.
+
+**Prediction:** channel 263 (zero main effect in round 2) has ≥ 80% of its total effect in its last 4 positions,
+matching its `…ATGC` top inputs. Mean total effect peaks within the last 3 positions.
+
+**Refuted if:** channel 263 has near-zero total effect everywhere (then the channel is dead, not combinatorial).

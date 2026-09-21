@@ -345,6 +345,41 @@ which shows at what depth the information leaves that position.
 
 ---
 
+## 2026-09-21: Novelty check and round 3 build
+
+**Novelty (literature search, ~8 queries; not a full review).**
+- Known prior work:
+  - attention does recall that gated convolutions can't, on synthetic tasks (Zoology, arXiv 2312.04927; MAD, 2403.17844);
+  - "massive activations" in transformers (Sun et al. 2024, 2402.17762);
+  - Evo 2 SAE features at layer 26 (Goodfire; Arc);
+  - attention-head and layer-ablation studies on genomic *transformers* (DNABERT etc.).
+- Not found:
+  - operator-level causal analysis of a trained StripedHyena / Evo 2;
+  - the block-30 bottleneck (a whole-write blow-up near the end, dead final block; known massive activations are a
+    few dimensions and fade at the end);
+  - weight-read evidence that LI filters are mostly local, which contradicts common explainers that credit Hyena-LI
+    with long-range integration;
+  - exhaustive first-layer enumeration;
+  - a load-bearing layer map.
+- Before claiming novelty: check the Evo 2 paper supplement, ask whether Arc or Goodfire know about the block-30
+  magnitudes, and replicate on a second checkpoint.
+
+**Round 3 built** (`notebooks/marv_hyena_round3_colab.ipynb`, not yet run). New tools:
+- `interface.block_input_attribution`: integrated gradients at block 30's input, with a completeness self-check;
+- `variants.residual_patch_by_depth`: swap the whole residual at the mutation site after each block;
+- `diagnostics.precision_check`: block 30 recomputed in float32;
+- `diagnostics.find_load_bearing`;
+- `motifs.rank_all_words`: all 64 three-letter words;
+- total-effect importance (`enumerate_block0(keep_all=True)`).
+
+35 tests pass on the tiny model, and the notebook dry-runs end to end. Predictions P12–P17 were registered before
+running.
+
+Found while building: the round-2 gene window (200,000–208,192) has no 60-letter intergenic stretch, so round 3 picks
+its intergenic positions from a wider window.
+
+---
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.

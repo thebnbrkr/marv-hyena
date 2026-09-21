@@ -66,6 +66,12 @@ class MotifDictionary:
     # variance across the 4 letters of the mean output given that letter.
     # Columns sum to 1 (share of the channel's position-attributable variance).
     position_importance: np.ndarray | None = None
+    # (k, H) round 3: TOTAL-effect index per position -- the average (over all
+    # settings of the other positions) of the variance when only this position
+    # changes, divided by the channel's total variance. Unlike the main effect,
+    # it catches channels that only respond to letter COMBINATIONS (round 2's
+    # channel 263 scored ~0 main effect everywhere). Needs keep_all=True.
+    position_total_effect: np.ndarray | None = None
 
     def pwm(self, channel: int, n: int = 100, negative: bool = False) -> np.ndarray:
         """(k, 4) letter frequencies over the channel's top-n k-mers (A, C, G, T)."""
@@ -82,9 +88,12 @@ class MotifDictionary:
 
 
 @torch.no_grad()
-def enumerate_block0(hm: HyenaModel, k: int | None = None, n_top: int = 200, batch: int = 4096) -> MotifDictionary:
+def enumerate_block0(hm: HyenaModel, k: int | None = None, n_top: int = 200, batch: int = 4096,
+                     keep_all: bool = False) -> MotifDictionary:
     """Run every k-mer through block 0 and keep, per channel, the n_top
-    strongest positive and negative responses at the last position."""
+    strongest positive and negative responses at the last position.
+    keep_all=True also stores every output (4**k x H, float16: ~2 GB for
+    k=9, H=4096) to compute the total-effect index."""
     k = k or receptive_field(hm)
     letters = torch.tensor([ord(b) for b in BASES], device=hm.device)
     H = hm.hidden_size
@@ -95,10 +104,13 @@ def enumerate_block0(hm: HyenaModel, k: int | None = None, n_top: int = 200, bat
     total = 4 ** k
     powers = 4 ** torch.arange(k - 1, -1, -1, device=hm.device)
     letter_sums = torch.zeros((k, 4, H), device=hm.device, dtype=torch.float64)
+    all_out = torch.empty((total, H), device=hm.device, dtype=torch.float16) if keep_all else None
     for s in range(0, total, batch):
         idx = torch.arange(s, min(s + batch, total), device=hm.device)
         digits = (idx[:, None] // powers[None, :]) % 4
         out = _block0_filter_out(hm, letters[digits])[:, -1].float()  # (B, H)
+        if keep_all:
+            all_out[s:s + len(idx)] = out.to(torch.float16)
         onehot = torch.nn.functional.one_hot(digits, 4).to(torch.float64)  # (B, k, 4)
         letter_sums += torch.einsum("bpl,bh->plh", onehot, out.double())
         v = torch.cat([top_v, out.T], 1)
@@ -118,6 +130,20 @@ def enumerate_block0(hm: HyenaModel, k: int | None = None, n_top: int = 200, bat
     imp = means.var(dim=1, unbiased=False)  # (k, H)
     imp = (imp / imp.sum(0, keepdim=True).clamp_min(1e-30)).float().cpu().numpy()
 
+    total_eff = None
+    if keep_all:
+        # index = sum_j digit_j * 4**(k-1-j): a C-order reshape puts position j on axis j
+        # channel chunks keep the float32 working set ~0.5 GB
+        total_eff = np.zeros((k, H), dtype=np.float32)
+        for c0 in range(0, H, 512):
+            sub = all_out[:, c0:c0 + 512].float()
+            var_total = sub.var(dim=0, unbiased=False).clamp_min(1e-30)
+            grid = sub.view(*([4] * k), sub.shape[1])
+            for p in range(k):
+                te = grid.var(dim=p, unbiased=False).mean(dim=tuple(range(k - 1))) / var_total
+                total_eff[p, c0:c0 + sub.shape[1]] = te.cpu().numpy()
+        del all_out
+
     return MotifDictionary(
         k=k,
         top_kmers=[[to_str(int(n)) for n in row] for row in top_i.cpu()],
@@ -125,7 +151,25 @@ def enumerate_block0(hm: HyenaModel, k: int | None = None, n_top: int = 200, bat
         bottom_kmers=[[to_str(int(n)) for n in row] for row in bot_i.cpu()],
         bottom_vals=bot_v.cpu().numpy(),
         position_importance=imp,
+        position_total_effect=total_eff,
     )
+
+
+def rank_all_words(md: MotifDictionary, length: int = 3, **kw) -> list[dict]:
+    """Round 3 baseline: controlled detector-channel counts for EVERY word of
+    `length` letters (64 for length 3), ranked. Round 2's control word GCG had
+    more detectors (53) than the start codon ATG (46), so 'ATG detectors exist'
+    only means something if ATG ranks high among all 64 words."""
+    import itertools
+
+    rows = []
+    for w in ("".join(p) for p in itertools.product(BASES, repeat=length)):
+        raw, ctrl = motif_channels(md, w, **kw)
+        rows.append({"word": w, "raw": len(raw), "controlled": len(ctrl)})
+    rows.sort(key=lambda r: -r["controlled"])
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+    return rows
 
 
 @dataclass
