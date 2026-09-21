@@ -169,6 +169,12 @@ single write exceeds 10%.
 
 **Refuted if:** block 30's share is < 50% anywhere, or another block's write is comparable in size.
 
+**Outcome (2026-09-21, round 2):** CONFIRMED, more strongly than predicted. Block 30's mixer write is 100.0% of the
+final residual's norm in all three regions (7.1e11, 4.4e12, 1.3e12). The next-largest write is block 29's MLP at
+~6e6, about 123,000× smaller. Block 30's MLP (~4e-15) and block 31 (mixer 0.38, MLP ~7e-14) write almost nothing.
+Ablating block 31 gives bit-identical outputs. In bf16, every write before block 30 is below rounding resolution
+once block 30 writes, so the output is a function of block 30's output alone.
+
 ---
 
 ### P8: With block 30 kept on, LI does not copy
