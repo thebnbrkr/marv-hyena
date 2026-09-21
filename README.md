@@ -69,7 +69,7 @@ pip install evo2                  # on Python 3.13 use: pip install --ignore-req
 pip install flash-attn==2.8.0.post2 --no-build-isolation   # optional; skipped automatically if absent
 # 2. this repo
 cd marv-hyena && pip install -e .
-python -m pytest -q          # 19 tests on a tiny CPU model, runs anywhere
+python -m pytest -q          # 22 tests on a tiny CPU model, runs anywhere
 ```
 
 A100s have no FP8, so only the 7B checkpoints run (`evo2_7b`, `evo2_7b_262k`,
@@ -140,7 +140,7 @@ marv_hyena/
   experiments.py copy_test, codon_test, context_test (the PREDICTIONS.md experiments)
 notebooks/       marv_hyena_colab.ipynb: the whole pipeline on a Colab A100
 scripts/         smoke_test, filter_reach, run_copy_test, block0_motifs, explain_variant
-tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 19 tests
+tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 22 tests
 PREDICTIONS.md   pre-registered predictions; outcomes get appended, never edited
 ```
 

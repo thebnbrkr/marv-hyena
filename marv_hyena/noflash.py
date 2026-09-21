@@ -20,8 +20,20 @@ import sys
 import types
 
 
+_STUB_MARKER = "_marv_noflash_stub"
+
+
 def flash_attn_available() -> bool:
-    return importlib.util.find_spec("flash_attn_2_cuda") is not None
+    """True only if the REAL flash_attn_2_cuda extension is installed. Our own
+    placeholder (after prepare()) does not count -- and find_spec cannot be
+    used on it, because it raises ValueError for a module whose __spec__ is None."""
+    mod = sys.modules.get("flash_attn_2_cuda")
+    if mod is not None:
+        return not getattr(mod, _STUB_MARKER, False)
+    try:
+        return importlib.util.find_spec("flash_attn_2_cuda") is not None
+    except (ValueError, ImportError):
+        return False
 
 
 def ignore_broken_transformer_engine() -> None:
@@ -50,6 +62,7 @@ def prepare() -> None:
     if not flash_attn_available() and "flash_attn_2_cuda" not in sys.modules:
         stub = types.ModuleType("flash_attn_2_cuda")
         stub.__doc__ = "placeholder installed by marv_hyena.noflash; flash attention is disabled"
+        setattr(stub, _STUB_MARKER, True)
         sys.modules["flash_attn_2_cuda"] = stub
 
     import evo2.models as em
