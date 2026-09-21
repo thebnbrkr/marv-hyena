@@ -61,10 +61,19 @@ class HyenaModel:
         return cls(evo2_obj.model)
 
     @classmethod
-    def load(cls, model_name: str = "evo2_7b", **kwargs) -> "HyenaModel":
+    def load(cls, model_name: str = "evo2_7b", use_flash_attn: bool | None = None, **kwargs) -> "HyenaModel":
         """Load through the official `evo2` package (downloads weights on first
         use). Needs Linux + CUDA; the 7B models run in bf16 without
-        Transformer Engine, which is the A100 path."""
+        Transformer Engine, which is the A100 path.
+
+        use_flash_attn=None: use the flash-attn package if it is installed,
+        otherwise PyTorch's built-in attention kernel (see noflash.py)."""
+        from . import noflash
+
+        if use_flash_attn is None:
+            use_flash_attn = noflash.flash_attn_available()
+        if not use_flash_attn:
+            noflash.prepare()
         from evo2 import Evo2
 
         return cls.from_evo2(Evo2(model_name, **kwargs))

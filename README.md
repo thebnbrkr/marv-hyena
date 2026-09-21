@@ -55,15 +55,18 @@ Open [`notebooks/marv_hyena_colab.ipynb`](notebooks/marv_hyena_colab.ipynb) with
 **Runtime → Change runtime type → A100 GPU** and turn on **High-RAM**, then run the cells top to bottom. The notebook
 installs Evo 2 and marv-hyena and downloads its data (the E. coli genome and the BRCA1 variants from the evo2 repo).
 It then runs the smoke checks and every experiment in `PREDICTIONS.md`, with plots, and saves `results.json`.
-An L4 may work with shorter sequences. A T4 won't, because flash-attention needs Ampere or newer.
+An L4 may work with shorter sequences. A T4 won't, because it has no bfloat16 support.
+
+**No flash-attn needed.** On Colab, `pip install flash-attn` usually finds no prebuilt wheel and compiles for
+hours. `HyenaModel.load` detects that flash-attn is missing and runs Evo 2's attention through PyTorch's built-in
+fused kernel instead (`marv_hyena/noflash.py`). If flash-attn *is* installed, it is used.
 
 ## Setup (Linux + NVIDIA GPU, e.g. one A100)
 
 ```bash
 # 1. Evo 2 itself. Light install: 7B models in bf16, no Transformer Engine; this is the A100 path
-pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu128
-pip install flash-attn==2.8.0.post2 --no-build-isolation
 pip install evo2
+pip install flash-attn==2.8.0.post2 --no-build-isolation   # optional; skipped automatically if absent
 # 2. this repo
 cd marv-hyena && pip install -e .
 python -m pytest -q          # 19 tests on a tiny CPU model, runs anywhere
@@ -132,6 +135,7 @@ marv_hyena/
   sae.py         Goodfire SAE loader, feature_acts, decompose_feature, edit_features
   vindex.py      MLP vindex, diff, neuron_acts, label_units
   motifs.py      receptive_field, enumerate_block0
+  noflash.py     run Evo 2 without the flash-attn package (PyTorch SDPA instead)
   checks.py      run_smoke_checks (shared by scripts/smoke_test.py and the notebook)
   experiments.py copy_test, codon_test, context_test (the PREDICTIONS.md experiments)
 notebooks/       marv_hyena_colab.ipynb: the whole pipeline on a Colab A100
