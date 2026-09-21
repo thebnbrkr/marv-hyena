@@ -65,7 +65,7 @@ fused kernel instead (`marv_hyena/noflash.py`). If flash-attn *is* installed, it
 
 ```bash
 # 1. Evo 2 itself. Light install: 7B models in bf16, no Transformer Engine; this is the A100 path
-pip install evo2
+pip install evo2                  # on Python 3.13 use: pip install --ignore-requires-python evo2==0.6.0
 pip install flash-attn==2.8.0.post2 --no-build-isolation   # optional; skipped automatically if absent
 # 2. this repo
 cd marv-hyena && pip install -e .

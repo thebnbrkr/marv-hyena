@@ -70,6 +70,7 @@ class HyenaModel:
         otherwise PyTorch's built-in attention kernel (see noflash.py)."""
         from . import noflash
 
+        noflash.ignore_broken_transformer_engine()
         if use_flash_attn is None:
             use_flash_attn = noflash.flash_attn_available()
         if not use_flash_attn:

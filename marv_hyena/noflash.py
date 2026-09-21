@@ -24,8 +24,27 @@ def flash_attn_available() -> bool:
     return importlib.util.find_spec("flash_attn_2_cuda") is not None
 
 
+def ignore_broken_transformer_engine() -> None:
+    """Colab's image ships an empty `transformer-engine` metapackage whose import
+    raises RuntimeError. evo2 and vortex only guard `import transformer_engine`
+    with `except ImportError`, so they crash. If the import fails with anything
+    other than ImportError, make it an ImportError (sys.modules[name] = None);
+    the 7B models run in bf16 without Transformer Engine anyway."""
+    try:
+        import transformer_engine  # noqa: F401
+    except ImportError:
+        return
+    except Exception as e:  # noqa: BLE001
+        for k in [k for k in sys.modules if k == "transformer_engine" or k.startswith("transformer_engine.")]:
+            del sys.modules[k]
+        sys.modules["transformer_engine"] = None
+        print(f"marv_hyena: ignoring broken transformer_engine install ({type(e).__name__}); "
+              "7B models run without it")
+
+
 def prepare() -> None:
     """Placeholder flash_attn_2_cuda + force use_flash_attn=False when evo2 builds a model."""
+    ignore_broken_transformer_engine()
     if "vortex" in sys.modules and "flash_attn_2_cuda" not in sys.modules:
         raise RuntimeError("vortex was imported before noflash.prepare(); restart the runtime and call prepare() first")
     if not flash_attn_available() and "flash_attn_2_cuda" not in sys.modules:
