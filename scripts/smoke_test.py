@@ -14,12 +14,10 @@ import sys
 import time
 from pathlib import Path
 
-import torch
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import marv_hyena as mh  # noqa: E402
-from marv_hyena import motifs  # noqa: E402
+from marv_hyena.checks import run_smoke_checks  # noqa: E402
 from marv_hyena.probes import load_sequence  # noqa: E402
 
 DEFAULT_GENOME = Path(__file__).resolve().parents[2] / "evo2-main/notebooks/sparse_autoencoder/NC_000913.gb"
@@ -45,52 +43,12 @@ def main():
     t0 = time.time()
     hm = mh.HyenaModel.load(args.model)
     print(f"loaded {args.model} in {time.time() - t0:.0f}s on {hm.device}\n{hm.describe()}\n")
-    results = []
+    ok = run_smoke_checks(hm, seq, tol=args.tol)
 
-    def check(name, ok, detail=""):
-        results.append(ok)
-        print(f"[{'PASS' if ok else 'FAIL'}] {name}  {detail}")
-
-    ids = hm.ids(seq)
-    L = len(seq)
-
-    # 1. every residual write is captured
-    w = mh.capture_writes(hm, ids, [L // 2, L - 1])
-    err = w.reconstruction_error()
-    check("embed + sum(writes) == final residual", err < args.tol, f"rel_err={err:.2e}")
-
-    # 2. trace adds up to the real logit difference
-    d = mh.decompose_prediction(hm, seq, L - 1)
-    rel = abs(d.total - d.actual) / max(1e-6, abs(d.actual))
-    check("trace rows sum to real logit diff", rel < args.tol, f"sum={d.total:+.3f} actual={d.actual:+.3f}")
-    d.show(k=8)
-
-    # 3. distance bands reconstruct one block of each Hyena kind
-    for kind in ("se", "mr", "li"):
-        b = hm.blocks_of(kind)[len(hm.blocks_of(kind)) // 2]
-        r = mh.hyena_distance(hm, ids, b, L - 1)
-        check(f"distance bands reconstruct block {b} ({kind})", r.rel_error < args.tol, f"rel_err={r.rel_error:.2e}")
-
-    # 4. block 0 receptive field (expected 3 + 7 - 1 = 9 for evo2 configs)
-    rf = motifs.receptive_field(hm)
-    check("block 0 receptive field is small enough to enumerate", rf <= 10, f"measured {rf} letters")
-
-    # 5. hooks leave no trace
-    before = hm.logits(ids)
-    means = mh.mean_writes(hm, ids, mh.mixers_of(hm, "li"))
-    with mh.mean_ablate(hm, means):
-        during = hm.logits(ids)
-    after = hm.logits(ids)
-    check("hooks removed after intervention", torch.equal(before, after))
-    check("mean-ablating LI mixers changes the output", not torch.allclose(before, during))
-
-    # 6. weight-only reach
     print()
     mh.show_reach(mh.reach_table(hm))
 
-    n_fail = results.count(False)
-    print(f"\n{len(results) - n_fail}/{len(results)} checks passed")
-    sys.exit(1 if n_fail else 0)
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":

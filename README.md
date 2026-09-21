@@ -1,5 +1,7 @@
 # marv-hyena
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_colab.ipynb)
+
 **MARV for StripedHyena DNA models.** Open up Evo 2 and find out which part of
 the model does which job, and why it gave a specific answer.
 
@@ -47,6 +49,14 @@ against the real module output captured in the same forward pass. If a
 check fails, the numbers mean nothing. Typically that means the installed
 Vortex computes something differently from what this code assumes.
 
+## Run it on Colab
+
+Open [`notebooks/marv_hyena_colab.ipynb`](notebooks/marv_hyena_colab.ipynb) with the badge above. Choose
+**Runtime → Change runtime type → A100 GPU** and turn on **High-RAM**, then run the cells top to bottom. The notebook
+installs Evo 2 and marv-hyena and downloads its data (the E. coli genome and the BRCA1 variants from the evo2 repo).
+It then runs the smoke checks and every experiment in `PREDICTIONS.md`, with plots, and saves `results.json`.
+An L4 may work with shorter sequences. A T4 won't, because flash-attention needs Ampere or newer.
+
 ## Setup (Linux + NVIDIA GPU, e.g. one A100)
 
 ```bash
@@ -56,7 +66,7 @@ pip install flash-attn==2.8.0.post2 --no-build-isolation
 pip install evo2
 # 2. this repo
 cd marv-hyena && pip install -e .
-python -m pytest -q          # 16 tests on a tiny CPU model, runs anywhere
+python -m pytest -q          # 19 tests on a tiny CPU model, runs anywhere
 ```
 
 A100s have no FP8, so only the 7B checkpoints run (`evo2_7b`, `evo2_7b_262k`,
@@ -122,8 +132,11 @@ marv_hyena/
   sae.py         Goodfire SAE loader, feature_acts, decompose_feature, edit_features
   vindex.py      MLP vindex, diff, neuron_acts, label_units
   motifs.py      receptive_field, enumerate_block0
+  checks.py      run_smoke_checks (shared by scripts/smoke_test.py and the notebook)
+  experiments.py copy_test, codon_test, context_test (the PREDICTIONS.md experiments)
+notebooks/       marv_hyena_colab.ipynb: the whole pipeline on a Colab A100
 scripts/         smoke_test, filter_reach, run_copy_test, block0_motifs, explain_variant
-tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 16 tests
+tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 19 tests
 PREDICTIONS.md   pre-registered predictions; outcomes get appended, never edited
 ```
 

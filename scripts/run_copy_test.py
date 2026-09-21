@@ -13,16 +13,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import marv_hyena as mh  # noqa: E402
+from marv_hyena.experiments import copy_test, summarize_copy  # noqa: E402
 from marv_hyena.probes import load_sequence  # noqa: E402
-
-KINDS = ("se", "mr", "li", "attn")
 
 
 def main():
@@ -36,41 +34,16 @@ def main():
     ap.add_argument("--out", default="copy_test.json")
     args = ap.parse_args()
 
-    genome = load_sequence(args.genome)
     hm = mh.HyenaModel.load(args.model)
-    rows = []
-    for gap in args.gaps:
-        for seed in range(args.seeds):
-            rng = random.Random(seed)
-            need = 1000 + gap + 50
-            off = rng.randrange(0, len(genome) - need)
-            probe = mh.copy_probe(genome[off:off + need], insert_len=args.insert, gap=gap, lead=1000, seed=seed)
-            ids = hm.ids(probe.seq)
-            base = mh.score_copy(hm.logits(ids), ids, probe)
-            rows.append({"gap": gap, "seed": seed, "condition": "none", **base})
-            conditions = {f"-{k}": mh.mixers_of(hm, k) for k in KINDS}
-            if args.per_block:
-                conditions.update({f"-L{b}({hm.kind(b)})": [(b, "mixer")]
-                                   for b in hm.blocks_of("attn") + hm.blocks_of("li")})
-            for name, comps in conditions.items():
-                means = mh.mean_writes(hm, ids, comps)
-                with mh.mean_ablate(hm, means):
-                    s = mh.score_copy(hm.logits(ids), ids, probe)
-                rows.append({"gap": gap, "seed": seed, "condition": name, **s})
-            print(f"gap={gap} seed={seed} done")
-
+    rows = copy_test(hm, load_sequence(args.genome), gaps=args.gaps, insert_len=args.insert, seeds=args.seeds,
+                     per_block_kinds=("attn", "li") if args.per_block else ())
     Path(args.out).write_text(json.dumps(rows, indent=1))
-    conds = list(dict.fromkeys(r["condition"] for r in rows))
+
+    gaps, conds, a2, a1 = summarize_copy(rows)
     print(f"\nsecond-copy accuracy (first-copy accuracy in brackets), mean over {args.seeds} seeds")
     print(f"{'gap':>7} " + " ".join(f"{c:>14}" for c in conds))
-    for gap in args.gaps:
-        cells = []
-        for c in conds:
-            sel = [r for r in rows if r["gap"] == gap and r["condition"] == c]
-            a2 = sum(r["second_acc"] for r in sel) / len(sel)
-            a1 = sum(r["first_acc"] for r in sel) / len(sel)
-            cells.append(f"{a2:>7.2f} ({a1:.2f})")
-        print(f"{gap:>7} " + " ".join(f"{x:>14}" for x in cells))
+    for i, gap in enumerate(gaps):
+        print(f"{gap:>7} " + " ".join(f"{f'{a2[i, j]:.2f} ({a1[i, j]:.2f})':>14}" for j in range(len(conds))))
     print(f"\nwrote {args.out}")
 
 
