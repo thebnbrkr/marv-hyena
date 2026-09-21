@@ -187,6 +187,164 @@ Consequences:
 
 ---
 
+## 2026-09-21: Round 2, the redesigned experiments (Evo 2 7B, A100)
+
+Setup ran clean (same cells as round 1). Smoke checks 8/8. Baseline health: 70% next-letter accuracy on ordinary
+E. coli DNA (86% on the gene-dense window used for codons). Raw outputs: `results/round2/`.
+
+### Finding 5: block 30 isn't just big, it's the only thing the output sees (confirmed)
+
+Size of each block's write to the shared log, same in all three genome regions tested:
+
+| write | size (L2 norm) |
+|---|---|
+| block 30 mixer (LI) | **~7 × 10¹¹ to 4 × 10¹²** |
+| block 29 MLP | ~6 × 10⁶ |
+| block 29 mixer | ~2 × 10⁵ |
+| block 28 MLP | ~9 × 10³ |
+| everything earlier | ~0.1 to 30 |
+| block 30 MLP, block 31 (attention + MLP) | **~0** (10⁻¹⁵, 10⁻¹⁴, 0.4) |
+
+Block 30's write is **~123,000× bigger** than the next one. The sizes also escalate through blocks 28 → 29 → 30.
+
+What this means, in software terms: the log is stored as **bf16**, a 16-bit float with only ~3 significant digits.
+Adding 6,000,000 to 700,000,000,000 in bf16 changes nothing. The smaller number is below the rounding step, like
+adding one cent to a $10-billion balance stored with 3 significant digits. So **after block 30 writes, everything
+written earlier is rounded away**, and the final guess is computed from block 30's output alone.
+
+Two consequences, both measured:
+- **Block 31 does nothing.** Switching off its attention gives *bit-identical* results to the normal model (same
+  accuracy to every decimal). Block 30's MLP and block 31's MLP write essentially zero. In this inference setup, the
+  last 1.5 blocks are dead weight.
+- **Everything the model knows must be squeezed into block 30's input.** The other 30 blocks matter only through
+  what they feed into block 30. So "direct credit" tools (our `trace`) will always say "block 30, 100%", and they are
+  useless for this model. The right place to measure is **the input to block 30**.
+
+Caveat: measured in the bf16 inference path (the official Evo 2 "light install" path for 7B, no Transformer Engine).
+The weights are the same everywhere, and the huge magnitude comes from the weights, so this is very likely general.
+The FP8 path wasn't tested.
+
+Side effect on our tooling: the smoke check "all writes add back up to the final log" (error 8 × 10⁻⁶) is now weak.
+It is dominated by block 30, so it couldn't notice a missing small write. The other checks (lag-band reconstruction
+per block) are unaffected.
+
+### Finding 6: five load-bearing layers, and the rest are individually expendable
+
+Switching off **one mixer at a time** (32 runs). Health = accuracy on ordinary genome (normal: 0.859):
+
+| switched off | health | verdict |
+|---|---|---|
+| L0 (SE, the first layer) | 0.288 | **breaks the model** |
+| L1 (MR) | 0.367 | **breaks the model** |
+| L9 (LI) | 0.254 | **breaks the model** |
+| L29 (MR) | 0.248 | **breaks the model** |
+| L30 (LI) | 0.288 | **breaks the model** (the bottleneck) |
+| any of the other 27 | 0.70–0.86 | model keeps working |
+
+This is why round 1's family ablations and round 2's "family minus block 30" still broke the model. **Every Hyena
+family contains at least one load-bearing layer**: SE has L0, MR has L1 and L29, LI has L9 and L30. Attention has
+none, which is why attention was the only family whose removal the model survived. The next family test must keep
+all load-bearing layers on.
+
+### Finding 7: which single layers copy (sharpens finding 1)
+
+Second-copy accuracy with one layer off (normal: 1.000 at 1,000-letter gap, 0.994 at 10,000):
+
+- **L3, the first attention layer: 0.939 / 0.633.** The main copier, especially at long range.
+- **L2, the first LI layer: 0.972 / 0.822.** LI helps with long-range copying too. L2 is also the LI block whose
+  filters reach furthest (one channel reaches 4,528 letters, finding 3). So the weight-read reach and the measured
+  behaviour agree.
+- Every other single layer: no effect on copying.
+- **Surprise:** switching off L1 (MR) *breaks ordinary prediction* (health 0.367) but copying stays **perfect**
+  (1.000 / 1.000). Copying is a separate circuit that survives when the "normal reading" machinery is damaged.
+
+With the whole attention family off, copying dies completely (round 1), but L3 alone only partly. So attention layers
+back each other up, with L3 doing most of the work.
+
+### Finding 8: the codon rhythm is spread out, not in one layer (P9 refuted)
+
+Rhythm = accuracy at codon positions 1–2 minus position 3 (normal: 0.251). No healthy single-layer switch-off halves
+it. The biggest drops come from **L10 (attention) → 0.166** and **L5 (MR) → 0.191**, not from any SE layer.
+(L0, SE, kills the rhythm, but it also kills the whole model.) The rhythm is distributed across many layers.
+
+### Finding 9: far-away DNA helps a little, consistently, through attention
+
+Benefit of 50,000 vs. 500 letters of upstream context, in nats per letter, 5 genes spread across the genome:
+
+| | creD | gspE | ilvI | uup | yehQ |
+|---|---|---|---|---|---|
+| normal model | +0.016 | +0.024 | +0.017 | +0.008 | +0.016 |
+| attention off (model still healthy) | −0.001 | −0.002 | −0.003 | −0.001 | −0.001 |
+
+The benefit is small but positive in 5/5 genes, and switching off attention removes it in 5/5. LI couldn't be tested
+(its family ablation breaks the model, finding 6). So the evidence says attention carries far context, the opposite of
+P2's guess, with the LI side still open.
+
+### Finding 10: first-layer motifs, after the controls
+
+**Composition control** (a channel counts only if the motif is ≥ 3× more common in its top inputs than chance for its
+letter mix):
+
+| motif | round 1 count | after control |
+|---|---|---|
+| start ATG | 46 | **46** |
+| stop TAA | 145 | **65** (80 were just AT-loving channels) |
+| stop TAG | 50 | **50** |
+| stop TGA | 41 | **41** |
+| Shine-Dalgarno AGGAG | 1 | **1** |
+| control: CCC | 264 | 8 |
+| control: GCG | 95 | **53** |
+
+The control did its job: it removed 80 fake TAA channels. But the control motif **GCG ends up with more detector
+channels (53) than ATG (46)**. So "block 0 has ATG detectors" is true, but not special: block 0 seems to have dozens of
+detectors for *many* 3-letter words, not specifically the biologically meaningful ones. To claim start/stop codons are
+special, we'd need to count detectors for all 64 three-letter words and show ATG and the stops stand out.
+
+**Position importance** (exact, from all 262,144 inputs): importance rises toward the current letter. Mean by
+position, 8 letters back → current: 0.03, 0.04, 0.05, 0.05, 0.08, 0.12, 0.14, 0.13, **0.20**. 64% of channels put
+≥ 80% of their importance in the last 6 positions, and 18% put ≥ 50% on the current letter alone. There are
+exceptions: the best TAG channel (1523) matches TAG at 6–8 letters back.
+
+**A flaw found in the new importance measure:** the best ATG channel (263) scored ~0 importance at *every*
+position, even though its top inputs clearly all end in `ATGC`. The measure (a "main effect": how much the average
+output changes with each letter at one position) misses channels that only fire on a **combination** of letters.
+Hyena multiplies signals together, so "fires only when A-T-G-C all appear together" is natural for it. It's like
+testing each feature flag separately when the bug only shows with a specific combination of flags. Fix: a
+"total effect" measure, which varies one position while holding the others fixed, over the full enumeration.
+
+### Finding 11: Evo 2 separates harmful from harmless BRCA1 variants (AUROC 0.88 on 40)
+
+Harmful (loss-of-function) variants got lower scores: mean −0.0046 vs. −0.0010 for functional ones, AUROC **0.88**
+(P11 predicted ≥ 0.65). Their effect on the following 200 letters was also 5× bigger (−22 vs. −4.4 nats). A small
+sample, but in line with the Evo 2 paper.
+
+**Patching at the mutation site** (which component's write *at the mutated position* carries the change onward):
+for 2 of 3 variants, **no single write carries more than ~4%**. For the third (chr17:41219643 G>C), **L0's write
+carries 64%**. Reading: the change is usually carried redundantly by the letter itself plus many writes at once, so
+swapping one write barely matters. Better next tool: swap the **whole log** at the mutation site after each block,
+which shows at what depth the information leaves that position.
+
+### What went wrong or stayed open in round 2
+
+- Family ablations are still broken, because each family has load-bearing members (finding 6). P8 is untestable again.
+- The GCG control shows the motif test needs a proper baseline over all 64 three-letter words.
+- The position-importance measure misses multiplicative channels (channel 263).
+- Mutation-site patching of single writes is too fine-grained. Most variants show nothing.
+- `trace` is useless for this model (finding 5). The bf16 dominance also weakens one smoke check.
+
+### Plan for round 3
+
+| question | method |
+|---|---|
+| does LI copy / carry context? | family ablations that **keep all five load-bearing layers on** (L0, L1, L9, L29, L30) |
+| what does block 30 read? | measure at **block 30's input**: patch the whole log entering block 30, per position and per earlier block |
+| where does a mutation's signal go? | **residual patching**: swap the entire log at the mutation site after each block |
+| are start/stop codons special in block 0? | count controlled detectors for **all 64** three-letter words; see where ATG and the stops rank |
+| channel importance | **total-effect** measure from the full enumeration (catches multiplicative channels) |
+| is the dead-block finding general? | check that the rounding-away of earlier writes also happens in float32, i.e. is it arithmetic or weights |
+
+---
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.
@@ -209,3 +367,7 @@ Consequences:
 - **nats / log-prob**: how confident the model was in the right letter. 0 = certain, −1.386 = pure guessing among 4.
 - **AUROC**: how well a score separates two groups. 0.5 = no better than a coin flip, 1.0 = perfect.
 - **bf16**: the 16-bit number format the model runs in. It explains the ~0.5% rounding in our self-checks.
+- **Load-bearing layer**: a single layer whose removal alone breaks the model (L0, L1, L9, L29, L30 in Evo 2 7B).
+- **Main effect vs. interaction**: a main effect is what one input position does *on average*; an interaction is an
+  effect that only appears for a *combination* of positions (like a bug that needs two flags on at once).
+

@@ -181,6 +181,13 @@ single write exceeds 10%.
 **Refuted if:** the model stays healthy but copying falls below 0.5, meaning LI takes part in copying.
 If the model is flagged broken, the result is UNTESTABLE again, not refuted.
 
+**Outcome (2026-09-21, round 2):** UNTESTABLE AGAIN. `-li (keep L30)` still broke the model (health 0.214), because
+LI contains a second load-bearing layer: L9 alone breaks the model (health 0.254). Side evidence from single-layer
+ablations: removing L2 (the LI block with the longest-reaching filters) lowers copying at the 10,000 gap from 0.994 to
+0.822 with the model healthy (0.845). So LI takes a modest part in long-range copying. That's not below the 0.5
+refutation bar, but it goes against "LI does not copy". Round 3: family ablations that keep L0, L1, L9, L29, L30 on.
+
+
 ---
 
 ### P9: Some single SE layer carries the codon rhythm
@@ -192,6 +199,12 @@ If the model is flagged broken, the result is UNTESTABLE again, not refuted.
 
 **Refuted if:** no healthy single-layer ablation of any kind halves the rhythm (the rhythm is distributed), or the
 layers that do are not SE.
+
+**Outcome (2026-09-21, round 2):** REFUTED. No healthy single-layer ablation halves the codon rhythm (normal
+0.251). The largest healthy drops are L10 (attention) → 0.166 (−34%) and L5 (MR) → 0.191 (−24%). No SE layer comes
+close (L0 kills the rhythm but breaks the whole model, health 0.288). Corrected model: the reading-frame signal is
+distributed across layers, with attention and MR contributing at least as much as SE.
+
 
 ---
 
@@ -207,6 +220,18 @@ motifs CCC and GCG have fewer controlled channels than ATG. Mean position import
 **Refuted if:** fewer than 5 controlled channels survive for ATG and for every stop codon, meaning the round-1 counts were
 composition artifacts.
 
+**Outcome (2026-09-21, round 2):** PARTLY CONFIRMED.
+- Controlled channels: ATG 46, TAA 65 (down from 145; 80 were composition artifacts), TAG 50, TGA 41,
+  AGGAG 1. "≥ 10 for ATG and two stops" is confirmed.
+- Position importance is highest at the current letter (0.204), then −2 (0.142), −1 (0.125). "Most recent 3
+  positions highest" is confirmed.
+- "Control motifs have fewer channels than ATG": REFUTED for GCG (53 > 46); holds for CCC (8).
+
+So 3-letter-word detectors are common in block 0, and ATG/stops are not shown to be special without a comparison
+across all 64 three-letter words. Also found: the main-effect importance measure scores purely combinatorial channels
+as ~0 (e.g. channel 263, top inputs ending in ATGC).
+
+
 ---
 
 ### P11: Zero-shot scores separate harmful from harmless BRCA1 variants
@@ -217,3 +242,6 @@ composition artifacts.
 the full set.
 
 **Refuted if:** AUROC < 0.55.
+
+**Outcome (2026-09-21, round 2):** CONFIRMED. AUROC 0.880 on 20 LOF + 20 FUNC variants. Mean delta log-likelihood:
+LOF −0.00458 vs. FUNC −0.00100. Mean downstream effect: −22.3 vs. −4.4 nats.
