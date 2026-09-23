@@ -535,3 +535,70 @@ our measurement at odds with the published SAE feature and mean one of the two i
 
 **Untestable if** fewer than 20 nonsense sites clear the `usable` threshold in the window, in which case widen the
 track rather than reporting a number.
+
+---
+
+## Round 4 outcomes (2026-09-23)
+
+Run on an 80 GB A100, smoke checks 8/8, 60/60 tests, all 19 cells clean, load-bearing `[0,1,4,9,29,30]` for the third
+consecutive run. Raw outputs: `results/round4/`.
+
+### P18 — PARTLY CONFIRMED
+
+A **single step out of 512** carries 97.4–99.9% of `f`'s range at all six positions (predicted ≥25%). `f` is a step
+function, so round 3b's ~100% completeness failure was not a bug in the attribution code. The refutation condition
+(smooth, no step above 10%) is nowhere near met.
+
+The second clause failed: 80% of the *total variation* needs 25–46% of the path, not <10%. Not a contradiction —
+`f` is a near-discontinuous jump **plus** heavy high-frequency noise. Both defeat integrated gradients: midpoint
+sampling steps over the jump, bf16 jitter swamps the gradient elsewhere.
+
+Causal replacement (R4.0b) inverts the answer. IG said L29 97.7–100%, L28 ≤2.3%, earlier 0.0%. Mean-ablation says
+L29 12.0%, L1 10.3%, L28 8.3%, L2 7.9%, L9 7.3%, L0 7.2%, L4 6.4% — reaching **block 0**, and recovering the
+load-bearing set by an independent route. Block 30 reads from the whole network.
+
+### P19 — REFUTED (the prediction was that our own finding was an artifact; it is not)
+
+Weight-shuffled block 0 produces **zero** detector channels: all 64 words, all 3 seeds, no NaNs, every value exactly
+0. Trained: median 46, mean 45.2, cv 0.280, range 6–65. Predicted the null would match the trained model within 50%
+on cv and a factor of 2 on median; it matches on neither.
+
+**Block 0's motif bank is learned.** Findings 4, 10, 15 and 16 survive and now carry the null model the bio-FM
+review asks for. Secondary clause (dead channels) is not separately reportable: the null has no live detectors to
+compare against.
+
+### P20 — REFUTED, via its own fallback clause
+
+Real 16S arm: first_lp −0.032 at **98.9% accuracy on first appearance**, retrieval gain **0.028** (predicted ≥0.5).
+Random arm: first_lp −1.431, gain 1.421. The clause that fires is *"the real arm shows essentially no gain (<0.1
+nats), which would mean the model predicts real repeats from prior knowledge alone and never retrieves."*
+
+`-attn` collapses the random/shuffled gain 1.42 → 0.01, and `-li` keeps 69% at a 1k gap but 29% at 10k, replicating
+findings 1, 7 and 13 on a new probe. So the circuit is real and attention-dependent; it is simply redundant on a
+conserved repeat.
+
+Two limits, both fixable: the run used **one family** (it cloned before the repeat-finder fix — six families,
+including IS2 ×7 and IS3 ×5, are available now), and `retrieval_gain` cannot measure anything when `first_lp ≈ 0`.
+
+### P21 — CONFIRMED on all three clauses
+
+| clause | result | predicted |
+|---|---|---|
+| missense more disruptive than silent, same site | **68.9%** (119 sites) | ≥ 65% |
+| median effect ratio | **1.319** (n_usable 48) | ≥ 1.20 |
+| modal divergence block | **11** | > 7 |
+
+Robust to the one outlier (68.6% without it). **Evo 2 represents amino acids, not just letters.**
+
+Unpredicted and more interesting: **90.8% of sites peak in SE blocks**, 87.4% in blocks 7/11/14 alone. With finding
+13 (MR carries the frame) that gives a division of labour — MR (128 letters ≈ 40 codons) tracks *where* the frame is,
+SE (7 letters ≈ 2 codons) reads *what* the codon says.
+
+### P22 — UNTESTABLE, by its own pre-registered gate
+
+Only 2 of 11 nonsense sites cleared `usable`, against the ≥20 required. Direction is unambiguous — **11/11** sign
+test, mean effect −38.1 nats vs −0.7 for missense — but not reportable.
+
+Our own design flaw contributed: `usable` gates on the **silent** arm, which is correct for P21 and wrong for P22.
+At these sites the silent arm averaged +0.23, disqualifying rows whose nonsense arm was enormous. Round 5: widen the
+track, and gate P22 on its own arm.

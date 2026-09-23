@@ -50,6 +50,9 @@ Follow one position of DNA through the 32 blocks:
 3. **Reading frame (MR layers).** The medium 128-letter layers carry the 3-letter codon rhythm inside genes. Remove
    them and accuracy becomes flat across codon positions. *(Finding 13; supersedes finding 8, which saw only
    single layers)*
+3b. **The genetic code (SE layers, mainly 7/11/14).** A missense change disturbs the model more than a silent one at
+   the same codon position in 68.9% of 119 sites, and 90.8% of those sites diverge most in an SE block. MR tracks
+   *where* the frame is; SE reads *what* the codon says. *(Finding 19)*
 4. **Look-up and copy (attention, mainly L3; LI helps at long range).** Exact repeats are recognised at any distance,
    from 100 to 10,000 letters. Attention is essential; the LI layers (especially L2) help only at long range.
    Copying is its own circuit: it survives even when ordinary reading is broken (e.g. with L1 removed).
@@ -68,21 +71,20 @@ Follow one position of DNA through the 32 blocks:
 
 **Confidence.**
 - Solid (causal, replicated across rounds, or exact from the weights): 4 (copying), 6 (LI reach), 7 (the funnel),
-  5 (far context via attention, 5/5 genes).
+  5 (far context via attention, 5/5 genes), 1 (block 0 — now with a random-weights null, finding 18).
 - **Bit-identical replication (round 3b):** the whole round-3 result set reproduced exactly on a different A100 SKU
   and CUDA version, so 2, 3 and 8 are no longer "measured once" in the numerical sense — though replication of an
   arithmetic result is not the same as replication across genomes or checkpoints.
-- **Pending a null model:** 1 (block 0). The enumeration is exact and the "generic 3-letter-word bank" reading is
-  arithmetically sound, but it has no random-weights baseline, and a flat distribution over all 64 words is what an
-  *untrained* gated convolution may also produce. Round 4 (P19) tests this and may retract the reading.
+- **Null model now run (round 4, finding 18):** block 0's bank is LEARNED. A weight-shuffled block 0 produces zero
+  detector channels for all 64 words on 3 seeds, against median 46 for the trained model. The flatness across words
+  is itself learned. Findings 4, 10, 15 and 16 stand, with the control the field keeps skipping.
 
 **Not yet known:**
-- what block 30 actually reads — R3.4 ran but integrated gradients fails its own completeness check at ~100%; the
-  funnel kills the gradient one block back, so the replacement has to be causal (round 4, P18);
-- whether block 0's word bank is learned at all (round 4, P19);
-- whether the copying circuit fires on real genomic repeats or only on our synthetic probe (round 4, P20);
-- whether the model represents amino acids rather than letters (round 4, P21);
-- what the redundant middle layers compute;
+- whether the copying circuit is used on *less conserved* real repeats — round 4 answered only for 16S rRNA, which
+  the model already predicts at 98.9% on first sight; IS2 and IS3 are the real test (round 5);
+- whether 16S's predictability is conservation, low entropy, or memorisation of this locus;
+- whether premature stops beat missense (P22 underpowered: 11 sites, 2 usable);
+- what the rest of the middle layers compute — round 4 accounts for blocks 7/11/14 (the genetic code) only;
 - whether LI carries far context (its condition keeps breaking);
 - whether this holds for other checkpoints (evo2_7b_262k, evo2_7b_base);
 - how it lines up with the Goodfire SAE features at layer 26.
@@ -783,6 +785,237 @@ The goal these round-4 tests are pointed at is a conference paper on how Evo 2 r
 reflects that: P19 can retract three existing findings, so it runs before anything is written; P20 decides whether
 the copying result is about genomes or about our probe; P21 and P22 are the first tests in this project where a
 positive result would be a statement about biology rather than about sequence statistics.
+
+---
+
+## 2026-09-23: Round 4, the null model and the biology (Evo 2 7B, 80 GB A100)
+
+Smoke checks 8/8, 60/60 tests, all 19 cells clean. Load-bearing set came back `[0, 1, 4, 9, 29, 30]` for the third
+consecutive run. Raw outputs: `results/round4/`.
+
+Two predictions confirmed, two refuted, one untestable. Both refutations moved things forward rather than back.
+
+### Finding 18: block 0's word bank is LEARNED (P19 refuted, in our favour)
+
+This was the test that could have retracted four findings. It did the opposite.
+
+| | median | mean | cv | range |
+|---|---|---|---|---|
+| trained | 46 | 45.2 | 0.280 | 6 – 65 |
+| weight-shuffled, 3 seeds | **0** | **0** | — | 0 – 0 |
+
+The shuffled null produces **no detector channels at all** — not for any of the 64 three-letter words, not on any of
+the three seeds. We predicted the opposite: that a flat distribution over all 64 words was what an untrained gated
+9-letter convolution would produce anyway, and that findings 4/10/15/16 described the architecture.
+
+Checked before believing it: no NaNs, every value exactly 0, and the detector test is **rank-based** (does ≥80% of a
+channel's top-50 9-mers share the motif, at ≥3× composition-controlled enrichment), so the change in output scale
+that shuffling causes cannot explain a zero. The weights were verified restored afterwards.
+
+So block 0's motif bank is a learned structure, and the *flatness across all 64 words is itself learned* rather than
+an artifact of random projections. Findings 4, 10, 15 and 16 survive and are now stronger than any of them were
+when measured: they carry the null model the bio-foundation-model review asks for by name ("SAEs trained on randomly
+initialized models" — we ran the weight-space analogue).
+
+Caveat worth keeping: the trained bottom five are all homopolymers (AAA 6, CCC 8, TTT 12, GGG 13). That is plausibly
+the composition control penalising them, since a channel whose top k-mers are A-rich has a high expected AAA rate.
+It does not affect the null comparison, which uses the identical measure on both sides.
+
+### Finding 19: SE applies the genetic code, MR carries the frame (P21 confirmed)
+
+At one codon site, change the third letter two ways — silently (ATT→ATC, both isoleucine) and missense (ATT→ATG,
+isoleucine→methionine). Same site, same codon position, same edit distance, same neighbours. 119 sites.
+
+| clause | result | predicted |
+|---|---|---|
+| missense more disruptive than silent, at the same site | **68.9%** | ≥ 65% |
+| median effect ratio (n_usable = 48) | **1.319** | ≥ 1.20 |
+| modal divergence block | **11** | > 7 |
+
+**Evo 2 represents amino acids, not just letters.** Robust to the single outlier (68.6% without it). This is the
+first result in the project that is a statement about biology rather than about sequence statistics.
+
+The localisation was not predicted and is the more interesting half:
+
+```
+block  7  se   21 sites (17.6%)      block 18  se   2       block  3  attn  1
+block 11  se   64 sites (53.8%)      block 28  se   2       block  6  li    1
+block 14  se   19 sites (16.0%)      block 29  mr   9
+```
+
+**90.8% of sites peak in SE blocks**, 87.4% in blocks 7/11/14 alone. Set against finding 13 (MR carries the reading
+frame), that is a clean division of labour:
+
+- **MR**, 128 letters ≈ 40 codons — *where* the frame is;
+- **SE**, 7 letters ≈ 2 codons — *what* the codon says.
+
+It also sits mid-network, after the early hand-off of finding 14 and well before the funnel, which is a first partial
+answer to "what do the redundant middle layers compute?"
+
+### Finding 20: the funnel defeats gradient attribution; causal ablation inverts the answer (P18 partly confirmed)
+
+A **single step out of 512** carries 97.4–99.9% of `f`'s entire range along the path from the embedding-only baseline
+to block 30's real input, at every one of the six positions. `f` is a step function. The refutation condition (smooth,
+no step above 10%) is nowhere close, so round 3b's ~100% completeness failure was never a bug in
+`interface.block_input_attribution`.
+
+The second clause failed: 80% of the *total variation* needs 25–46% of the path, not <10%. Not a contradiction —
+`f` is a near-discontinuous jump **plus** heavy high-frequency noise along the whole path. Both defeat integrated
+gradients, for different reasons: midpoint sampling steps over the jump, bf16 jitter swamps the gradient elsewhere.
+
+Replacing it with mean-ablation of each write entering block 30 gives the opposite answer:
+
+| | integrated gradients (round 3b) | causal ablation (round 4) |
+|---|---|---|
+| L29 | 97.7–100% | 12.0% |
+| L28 | ≤ 2.3% | 8.3% |
+| L27 and earlier | **0.0%** | the remaining ~80% |
+
+Causal attribution reaches **block 0**. Top contributors: L29 (12.0%), L1 (10.3%), L28 (8.3%), L2 (7.9%), L9 (7.3%),
+L0 (7.2%), L4 (6.4%) — essentially the load-bearing set plus L28 and L2, arrived at by a completely independent
+route. **Block 30 reads from the whole network**; the gradient simply could not see it.
+
+### Finding 21: on a real conserved repeat, retrieval is redundant (P20 refuted)
+
+| arm | first_lp | first_acc | retrieval gain |
+|---|---|---|---|
+| **real 16S rRNA** | **−0.032** | **98.9%** | **0.028** |
+| shuffled (same composition) | −1.401 | 28.3% | 1.392 |
+| random insert | −1.431 | 26.1% | 1.421 |
+
+The model predicts 16S rRNA at 98.9% accuracy **on its first appearance**, so there is no headroom for retrieval to
+fill and the gain is 0.028 where we predicted ≥0.5. That meets P20's own fallback clause: the model predicts real
+repeats from prior knowledge alone and never needs to retrieve.
+
+Meanwhile `-attn` collapses the random/shuffled gain from 1.42 to 0.01, and `-li` keeps 69% of the gain at a
+1,000-letter gap but only 29% at 10,000 — independently replicating findings 1, 7 and 13 on a new probe.
+
+So the honest answer to the biologist's challenge is neither yes nor no: **the retrieval circuit is real and
+attention-dependent, but on a conserved real repeat it is redundant, because prior knowledge gets there first.**
+
+Two things blunt this result, and both are fixable:
+
+1. **It ran on one family.** The notebook cloned before the repeat-finder fix landed (its output says
+   `identity 0.995` and `60 passed`, both pre-fix), so it got 16S only instead of six families. 16S rRNA is the most
+   conserved sequence in biology — the worst possible probe for detecting retrieval. **IS2 (7 copies) and IS3 (5
+   copies) are the real test**, and they are available now.
+2. `retrieval_gain` presumes headroom. When `first_lp ≈ 0` it cannot measure anything, by construction.
+
+### P22: untestable, by our own gate
+
+Only 2 of 11 nonsense sites were `usable`, against the ≥20 pre-registered. The direction is not subtle — **11/11** on
+the sign test, mean effect **−38.1 nats** against −0.7 for missense — but it is not a reportable number.
+
+A design flaw of ours contributed: `usable` gates on the **silent** arm's effect, which is right for P21 and wrong
+for P22. At these sites the silent arm averaged +0.23, barely disturbing, which disqualified rows whose nonsense arm
+was enormous. Fix both ways: widen the track for more sites, and gate P22 on its own arm.
+
+### On "memorization", which we nearly wrote down as fact
+
+The first reading of finding 21 was "the model has memorized 16S rRNA". That is not supported, and a number in the
+same run argues against it: **baseline accuracy on ordinary E. coli is 0.696.** If the genome were memorised that
+would be near 1.0. So 16S at 98.9% is not "this genome is in training" — it is that 16S specifically is far more
+predictable than ordinary E. coli DNA, in the same model, on the same run.
+
+Three explanations remain, and round 4 cannot separate them: conservation/generalisation (Evo 2 saw thousands of
+bacterial 16S homologs), low intrinsic entropy (16S folds into a rigid structure, so bases are heavily constrained),
+or genuine memorisation of this locus — now the least-supported of the three. The correct wording is **prior
+knowledge**. One confound was checked and cleared: the probe background is 1.5–1.56 Mb and all seven rrn operons sit
+at ~223 kb, 2.7, 3.4, 3.9, 4.0, 4.2 Mb, so no rRNA leaked into the background.
+
+---
+
+## 2026-09-23: Novelty re-check against the papers (revised; supersedes the round-3 check)
+
+The round-3 novelty check was done with ~8 searches and no full reads. This one reads the sources. Two claims we were
+making have to be softened, and one becomes much stronger.
+
+### The architecture paper states our premise for us
+
+We finally read **StripedHyena 2** ([arXiv 2503.01868](https://arxiv.org/html/2503.01868v1)), the paper that built
+the architecture Evo 2 runs on. It contains **no layer ablation, no per-layer activation magnitudes, no numerical
+stability discussion, and no interpretability of any kind** — no attribution, no probing, no analysis of learned
+filters. No biology either.
+
+Its operator specialisation claims are prose, sourced to prior *synthetic* work (Akyürek et al. 2024; Poli et al.
+2024), with no new evidence:
+
+> **Hyena-SE** "specializing in local multi-token recall" · **Hyena-MR** "tailored to efficient modeling across
+> hundreds of tokens" · **Hyena-LI** "aggregate information over the entire sequence" · **Attention** "optimized for
+> targeted recall of information across longer sequences"
+
+Putting those next to what we measured is the sharpest framing this project has:
+
+| operator | the architecture paper claims | we measured | verdict |
+|---|---|---|---|
+| **SE** | "local multi-token **recall**" | no part in recall (copying 1.000 / 1.000 / 0.989 with SE removed); it is where the **genetic code** is applied (90.8% of codon divergence peaks in SE 7/11/14) and its removal halves the codon rhythm | **wrong** |
+| **MR** | "modeling across hundreds of tokens" | uses that window for one job: the **reading frame** (rhythm 0.251 → −0.016), copying untouched | **vague, now specific** |
+| **LI** | "aggregate information over the **entire sequence**" | most channels reach **4–7 letters**; does **not** carry far context (attention does, 5/5 genes); assists only long-range copying | **wrong** |
+| **attn** | "targeted recall across **longer** sequences" | essential at **every** distance including a 100-letter gap that MR's 128-letter window could span; also carries far context | **right, understated** |
+
+**Three of four claims are wrong and the fourth is understated.** The architecture was built on a specialisation
+story borrowed from synthetic benchmarks; in the trained model the operators do specialise, just not that way.
+
+The one ablation they do run is architecture-level, not layer removal: Table 2.1 compares block *layouts*
+(SE-SE-LI vs SE-MR-LI vs LI-LI-LI) at 7B/400B tokens and finds SE-MR-LI best on pretraining quality. That does not
+scoop anything — it proves **the mix matters** and never asks why. It is the motivation section we were missing.
+They also give no justification for the striping pattern or for why five attention layers.
+
+### The load-bearing map is a replication, not a discovery
+
+This is the correction the round-3 check needs most. We listed "a load-bearing layer map" as not-found. Not found
+*for Hyena or Evo 2* — true, and confirmed by reading StripedHyena 2, the Evo 2 paper and the Goodfire report. But
+the idea is established:
+
+- [**ShortGPT**](https://arxiv.org/html/2403.03853v3) and *The Unreasonable Ineffectiveness of the Deeper Layers*
+  built layer-importance maps for LLMs. Their pattern: **shallow layers crucial, middle-to-late redundant, initial
+  and final layers important.** Ten of LLaMA-2-13B's 40 layers removed costs MMLU 55.0 → 52.2.
+- [**Hegde, Nebel & Rahman, *Genes* 16(11):1358**](https://doi.org/10.3390/genes16111358) (Nov 2025) ablated **every
+  layer** of DNABERT-2 (12 layers) and Nucleotide Transformer (24 layers), built "layer importance profiles", and
+  pruned the redundant ones. Layer-importance mapping already exists for DNA language models.
+
+Our map — L0, L1, L4, L9 early plus L29, L30 late, middle 10–28 expendable — *is ShortGPT's pattern*. Claim it as a
+replication in a new architecture class. (The Genes paper is encoder-only transformers, a downstream task and an
+efficiency goal, so no operator types exist in it to compare; the full text is paywalled to us, so its internal
+details are not characterised here.)
+
+What has no precedent is one level down: **every Hyena family contains a load-bearing layer and attention contains
+none.** That asymmetry is new, and it is what made the fair family tests of round 3 possible at all.
+
+### Three papers the round-3 review missed
+
+| paper | what it means for us |
+|---|---|
+| [**PAS-ISP**](https://arxiv.org/abs/2608.12149) (Aug 2026) — massive activations in hybrids **spike immediately before full-attention layers** | **The live threat to the funnel.** Block 30 (LI) sits immediately before block 31 (attn): textbook pre-attention-spike position. Cuts our way only partly — they cover five *linear-attention* architectures, explicitly not Hyena, conv mixers or DNA, and in our model block 31 does nothing at all. **Read the full text before writing the funnel as novel.** |
+| [**Mamba activation-subspace bottleneck**](https://arxiv.org/html/2602.22719) — a Layer-20 bottleneck with "low gradient sensitivity and extremely high post-ablation KL divergence" | Our exact finding-20 signature, in a different architecture. Demotes "gradients fail, ablation works" from discovery to convergent confirmation — which is still worth reporting, and worth citing. |
+| [**Memorization in genomic LMs**](https://arxiv.org/html/2603.08913) — Evo **1** recovers 100% of planted canaries; their canaries are "random nucleotide strings carrying no biological structure" and they say it "remains an open question whether memorization of real sequences would manifest at comparable rates" | Our synthetic copy probe is their canary experiment; they show *that* Evo recovers, we show *which component does it*. Our 16S result sits precisely in their stated gap, and their framing is why "prior knowledge" is the right word, not "memorisation". |
+
+Also upgraded: [**What Attention Recalls and Recurrence Controls**](https://arxiv.org/abs/2609.04434) is EMNLP 2026
+Findings and is *causal* (split-prefill, state-swap on Qwen3.5/Falcon-H1: retrieval 64–98% through attention, **zero**
+through recurrence). It is a stronger prior on our copying result than the round-3 entry credited. And
+[Zoology](https://arxiv.org/abs/2312.04927) pretrained 17 models on the Pile and attributes **82%** of the
+attention–gated-conv gap to recall; also stronger than credited. Both still stop short of opening a large trained
+model.
+
+### Where the novelty actually sits, after all that
+
+**Strong, nothing comparable found:**
+1. The block-0 **random-weights null** (trained 46/word vs shuffled 0/word). The bio-FM review asks for exactly this
+   class of control; nobody has run it on a DNA model's first layer.
+2. **SE applies the genetic code, MR carries the frame** — causal localisation of a biological computation to an
+   operator *type*. Codon↔amino-acid structure is known in *codon* LMs and *protein* LMs, but those take codons or
+   residues as input, and the results are representational clustering, not causal localisation.
+3. The exhaustive 4⁹ first-layer dictionary.
+4. The operator-family load-bearing asymmetry.
+
+**Confirm-and-extend, and should be written that way:** copying/retrieval (Zoology, arXiv 2609.04434);
+gradients-fail-ablation-works (Mamba subspace); the load-bearing map (ShortGPT, Genes 16:1358); the funnel (pending
+PAS-ISP).
+
+**One framing fight worth having in print.** The bio-FM review's position — and essentially all bio-FM
+interpretability — is that the unit of analysis is the **feature**, via SAEs. Our work is entirely
+**component-level**: blocks and operator types. That is a disagreement, not a gap, and finding 19 is the best
+evidence on our side: a component-level result with real biological content that no SAE has reported.
 
 ---
 

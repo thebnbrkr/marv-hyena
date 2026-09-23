@@ -54,7 +54,7 @@ Vortex computes something differently from what this code assumes.
 
 ## What we've found so far (Evo 2 7B)
 
-Short version, as of round 3b. The reasoning, numbers and mistakes are in [`RESEARCH_LOG.md`](RESEARCH_LOG.md), and
+Short version, as of round 4. The reasoning, numbers and mistakes are in [`RESEARCH_LOG.md`](RESEARCH_LOG.md), and
 predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 
 - **One block decides.** Block 30's output is ~10⁵× larger than any other, so the prediction is a function of block
@@ -64,22 +64,39 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 - **The reading frame (codon rhythm) lives in the MR (medium) layers**, not the SE (short) ones.
 - **Mutations are judged early and locally.** Their effect leaves the mutated position within blocks 0–7.
 - **"Long" LI filters are mostly short** (4–7 letters), with a few long-reaching channels.
-- **Block 0 is a generic bank of 3-letter-word detectors.** Start and stop codons aren't special, and 18% of its
-  channels are dead.
+- **Block 0 is a generic bank of 3-letter-word detectors, and it is LEARNED.** Start and stop codons aren't special,
+  and 18% of its channels are dead. A weight-shuffled block 0 produces **zero** detector channels for all 64 words
+  (3 seeds) against a median of 46 for the trained model, so the bank is not an artifact of the architecture.
+- **SE applies the genetic code; MR carries the frame.** A missense change disturbs the model more than a silent one
+  at the same codon position in 68.9% of 119 sites, and 90.8% of those sites diverge most in an SE block (7/11/14).
+  MR's 128-letter window tracks *where* the frame is; SE's 7-letter window reads *what* the codon says.
+- **The funnel defeats gradient attribution.** Integrated gradients at block 30's input attributes zero (a single
+  step out of 512 carries ~99% of the function's range). Causal ablation instead reaches all the way back to
+  block 0 — so block 30 reads from the whole network, and anything measuring it has to be causal.
 - **Far context goes through attention.** 50,000 letters of upstream DNA are worth 0.016 nats/letter, and removing
   attention erases all of it on 5/5 genes while the model stays healthy.
 - **Six load-bearing layers** (L0, L1, L4, L9, L29, L30); every other single layer is individually expendable.
 - **Round 3 replicated bit-identically** on a different A100 SKU and CUDA version (round 3b).
 
-Three caveats we hold ourselves to, all being tested in round 4:
+**How this compares to what the architecture paper claims.** StripedHyena 2
+([arXiv 2503.01868](https://arxiv.org/html/2503.01868v1)) asserts operator specialization in prose, sourced to prior
+*synthetic* work, with no ablations, no per-layer magnitudes and no interpretability of its own:
 
-- The **block-0 findings have no null model yet.** A flat distribution over all 64 three-letter words is also what an
-  *untrained* gated convolution may produce, so "generic word-detector bank" may describe the architecture rather
-  than anything Evo 2 learned (P19).
-- The **copying result uses a synthetic random insert.** Whether the circuit fires on real genomic repeats is
-  untested (P20).
-- **The funnel defeats gradient attribution.** Integrated gradients at block 30's input fails its completeness check
-  at ~100%: the gradient reaches exactly one block back. Anything measuring what block 30 reads has to be causal.
+| operator | the architecture paper claims | we measured | |
+|---|---|---|---|
+| **SE** | "local multi-token **recall**" | no part in recall; applies the **genetic code** | wrong |
+| **MR** | "modeling across hundreds of tokens" | tracks the **reading frame** specifically | made specific |
+| **LI** | "aggregate over the **entire sequence**" | channels mostly reach **4–7 letters**; no far context | wrong |
+| **attn** | "recall across **longer** sequences" | essential at **every** distance, plus far context | understated |
+
+Caveats we hold ourselves to:
+
+- **Everything is one checkpoint** (`evo2_7b`). Nothing is checked on `evo2_7b_262k` or `evo2_7b_base`.
+- The real-repeat test ran on **one family** (16S rRNA), which the model already predicts at 98.9% on first sight,
+  so it had no headroom to show retrieval. Less-conserved IS elements are the real test.
+- The **load-bearing map replicates a known pattern** ([ShortGPT](https://arxiv.org/html/2403.03853v3): early layers
+  crucial, middle redundant, last important). What is new is that every Hyena family contains a load-bearing layer
+  while attention contains none.
 
 ## Run it on Colab
 
