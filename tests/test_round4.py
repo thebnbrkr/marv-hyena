@@ -167,7 +167,7 @@ def test_repeat_probes_share_everything_but_the_insert():
     fam = genome.RepeatFamily(
         "test", "rRNA",
         [genome.RepeatCopy(0, 300, 1, _rand_dna(300, 8))],
-        identity=1.0)
+        kmer_similarity=1.0)
     rps = genome.repeat_probes(bg, fam, gaps=(500,), insert_len=100, lead=400, seed=0)
     arms = {r.arm: r for r in rps}
     assert set(arms) == {"real", "shuffled", "random"}
@@ -261,3 +261,45 @@ def test_translation_test_marks_unusable_rows(hm, seq):
         assert r["usable"] == (r["syn_effect"] < -codons.MIN_EFFECT)
         if not r["usable"]:
             assert r["effect_ratio"] != r["effect_ratio"]  # NaN
+
+
+# ---------------------------------------------------------------- repeat finding
+def test_family_key_strips_per_copy_suffixes():
+    """E. coli names every IS copy separately. Grouping on the raw name put each
+    copy in a group of one and found zero mobile-element families in the real
+    genome."""
+    assert genome._family_key("insertion sequence:IS1A") == "IS1"
+    assert genome._family_key("insertion sequence:IS1I") == "IS1"
+    assert genome._family_key("insertion sequence:IS186A") == "IS186"
+    assert genome._family_key("insertion sequence:IS911A-1") == "IS911"
+    assert genome._family_key("insertion sequence:IS30B") == "IS30"
+    # a name whose trailing letter is not a copy suffix must survive intact:
+    # stripping ISX's X would leave a bare "IS" and merge unrelated elements
+    assert genome._family_key("insertion sequence:ISX") == "ISX"
+    # names without the "type:" prefix still work
+    assert genome._family_key("16S ribosomal RNA") == "16S ribosomal RNA"
+
+
+def test_kmer_similarity_survives_an_indel():
+    """The seven real 23S rRNA copies differ in length by one base. A
+    prefix-by-prefix comparison scored them 0.87 and rejected the best repeat
+    family in the genome."""
+    a = _rand_dna(600, 21)
+    b = a[:300] + "G" + a[300:]          # one insertion, mid-sequence
+    assert len(b) == len(a) + 1
+    prefix_identity = sum(x == y for x, y in zip(a, b)) / len(a)
+    # The first half still lines up and the shifted half agrees ~1/4 of the time
+    # by chance, so prefix comparison lands near (300 + 0.25*300)/600 = 0.625 --
+    # under the 0.90 threshold find_repeat_families applies, which is exactly how
+    # the real 23S family got thrown away.
+    assert 0.5 < prefix_identity < 0.7, "the fixture must actually break prefix alignment"
+    assert genome.kmer_similarity(a, b, k=16) > 0.90
+
+
+def test_kmer_similarity_bounds():
+    a = _rand_dna(500, 22)
+    assert genome.kmer_similarity(a, a) == pytest.approx(1.0)
+    assert genome.kmer_similarity(a, _rand_dna(500, 23)) < 0.1
+    # shorter than k falls back to containment
+    assert genome.kmer_similarity("ACGT", "TTACGTTT", k=16) == 1.0
+    assert genome.kmer_similarity("AAAA", "CCCCCCCC", k=16) == 0.0

@@ -29,6 +29,7 @@ really was about the synthetic probe.
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass
 
 import torch
@@ -69,7 +70,9 @@ class RepeatFamily:
     name: str
     feature_type: str
     copies: list[RepeatCopy]
-    identity: float  # mean pairwise identity over the prefix-aligned copies
+    # Mean pairwise k-mer similarity, NOT an alignment identity: see
+    # kmer_similarity for why the distinction matters here.
+    kmer_similarity: float
 
     @property
     def n_copies(self) -> int:
@@ -81,7 +84,50 @@ class RepeatFamily:
 
     def __repr__(self) -> str:
         return (f"RepeatFamily({self.name!r}, {self.feature_type}, {self.n_copies} copies, "
-                f"{self.length} bp, identity {self.identity:.3f})")
+                f"{self.length} bp, k-mer similarity {self.kmer_similarity:.3f})")
+
+
+def _family_key(name: str) -> str:
+    """Collapse a per-copy feature name to its family.
+
+    E. coli annotates each insertion-sequence copy individually
+    ("insertion sequence:IS1A", "IS1B", "IS1C", "IS911A-1"), so grouping on the
+    raw name puts every copy in a group of one and finds no repeats at all.
+    The family is the name with its copy suffix removed.
+
+    A trailing "-<digits>" goes first, then ONE trailing uppercase letter, but
+    only when what remains still ends in a digit. That last guard keeps IS1A ->
+    IS1 while leaving a genuine name like ISX alone (stripping its X would
+    leave a bare "IS").
+    """
+    base = name.split(":")[-1].strip()
+    m = re.match(r"^(.*?)-\d+$", base)
+    if m:
+        base = m.group(1)
+    if len(base) > 1 and base[-1].isupper() and base[-2].isdigit():
+        base = base[:-1]
+    return base
+
+
+def kmer_similarity(a: str, b: str, k: int = 16) -> float:
+    """Share of the shorter sequence's k-mers that also occur in the longer one.
+
+    Deliberately NOT an alignment identity. E. coli's seven 23S rRNA copies
+    differ in length by one base (2904 vs 2905); a prefix-by-prefix comparison
+    puts everything after that indel out of register and scores them 0.87,
+    which rejected the single best repeat family in the genome. Counting shared
+    k-mers is indel-robust: one indel only disturbs the k k-mers spanning it.
+
+    Called "similarity", not "identity", because %identity has a specific
+    meaning in biology and this is not it.
+    """
+    if len(a) > len(b):
+        a, b = b, a
+    if len(a) < k:
+        return 1.0 if a in b else 0.0
+    big = {b[i:i + k] for i in range(len(b) - k + 1)}
+    small = [a[i:i + k] for i in range(len(a) - k + 1)]
+    return sum(s in big for s in small) / len(small)
 
 
 def _feature_name(f) -> str | None:
@@ -92,30 +138,26 @@ def _feature_name(f) -> str | None:
     return None
 
 
-def _pairwise_identity(seqs: list[str]) -> float:
-    """Mean identity over prefix-aligned pairs. Crude (no alignment), which is
-    why `min_identity` is only used to reject families that are not really
-    repeats -- the numbers reported are never based on this."""
-    n = min(len(s) for s in seqs)
-    if n == 0:
-        return 0.0
+def _mean_similarity(seqs: list[str], k: int = 16) -> float:
+    """Mean pairwise k-mer similarity over the copies."""
     tot, pairs = 0.0, 0
     for i in range(len(seqs)):
         for j in range(i + 1, len(seqs)):
-            a, b = seqs[i][:n], seqs[j][:n]
-            tot += sum(x == y for x, y in zip(a, b)) / n
+            tot += kmer_similarity(seqs[i], seqs[j], k)
             pairs += 1
     return tot / max(1, pairs)
 
 
 def find_repeat_families(path: str, types=("rRNA", "mobile_element"), min_copies: int = 2,
-                         min_len: int = 150, min_identity: float = 0.90) -> list[RepeatFamily]:
+                         min_len: int = 150, min_similarity: float = 0.90,
+                         k: int = 16) -> list[RepeatFamily]:
     """Repeat families from a GenBank file's annotations.
 
-    Groups features of the same type by name (mobile_element_type / product /
-    gene), keeps groups with at least `min_copies` members that really are
-    near-identical. Copies on the minus strand are reverse-complemented so
-    every copy in a family is in the same orientation.
+    Groups features of the same type by FAMILY (see `_family_key`: E. coli names
+    every IS copy separately, so the raw name gives groups of one), keeps groups
+    with at least `min_copies` members that really are near-identical, judged by
+    indel-robust k-mer similarity. Copies on the minus strand are
+    reverse-complemented so every copy in a family shares an orientation.
     """
     from Bio import SeqIO
 
@@ -135,17 +177,17 @@ def find_repeat_families(path: str, types=("rRNA", "mobile_element"), min_copies
         sub = genome[s:e]
         if set(sub) - set("ACGT"):
             continue
-        groups.setdefault((f.type, name), []).append(
+        groups.setdefault((f.type, _family_key(name)), []).append(
             RepeatCopy(s, e, strand, sub if strand >= 0 else reverse_complement(sub)))
 
     out = []
     for (ftype, name), copies in groups.items():
         if len(copies) < min_copies:
             continue
-        ident = _pairwise_identity([c.seq for c in copies])
-        if ident < min_identity:
+        sim = _mean_similarity([c.seq for c in copies], k)
+        if sim < min_similarity:
             continue
-        out.append(RepeatFamily(name, ftype, sorted(copies, key=lambda c: c.start), ident))
+        out.append(RepeatFamily(name, ftype, sorted(copies, key=lambda c: c.start), sim))
     return sorted(out, key=lambda f: (-f.n_copies, -f.length))
 
 
