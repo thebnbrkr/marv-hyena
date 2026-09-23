@@ -45,16 +45,24 @@ class CopyProbe:
 
 
 def copy_probe(background: str, insert_len: int = 200, gap: int = 1000, lead: int = 1000,
-               seed: int = 0) -> CopyProbe:
+               seed: int = 0, insert: str | None = None) -> CopyProbe:
     """lead letters of background, the random insert, `gap` letters of
     background, the insert again, 50 letters of background. Background must
     be at least lead + gap + 50 long (use real genome, not random DNA, so the
-    model is in-distribution everywhere except the inserts)."""
+    model is in-distribution everywhere except the inserts).
+
+    `insert` supplies the repeated stretch instead of drawing a random one, so
+    the same probe can be built from a real genomic repeat (round 4; see
+    genome.py). Its length overrides insert_len."""
     need = lead + gap + 50
     if len(background) < need:
         raise ValueError(f"background too short: need {need}, have {len(background)}")
     rng = random.Random(seed)
-    ins = random_dna(insert_len, rng)
+    if insert is None:
+        ins = random_dna(insert_len, rng)
+    else:
+        ins = insert.upper()
+        insert_len = len(ins)
     a = background[:lead]
     g = background[lead:lead + gap]
     tail = background[lead + gap:lead + gap + 50]

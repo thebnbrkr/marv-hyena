@@ -54,8 +54,9 @@ Follow one position of DNA through the 32 blocks:
    from 100 to 10,000 letters. Attention is essential; the LI layers (especially L2) help only at long range.
    Copying is its own circuit: it survives even when ordinary reading is broken (e.g. with L1 removed).
    *(Findings 1, 7, 13)*
-5. **Far context (tentative: attention).** 50,000 letters of upstream DNA help only slightly (~0.01–0.02 nats per
-   letter), and removing attention erases that. The fair LI test is still pending. *(Finding 9)*
+5. **Far context (attention).** 50,000 letters of upstream DNA help only slightly (0.016 nats per letter averaged
+   over 5 genes), and removing attention erases all of it on 5/5 genes while the model stays healthy. The fair LI
+   test is still untestable: its one informative condition broke. *(Findings 9, 17)*
 6. **What "long" LI layers really do.** Most LI filter channels reach only 4–7 letters; a few reach thousands. That's
    consistent with LI helping long-range copying without being the main long-range channel. L9 is load-bearing.
    *(Findings 3, 13)*
@@ -66,15 +67,23 @@ Follow one position of DNA through the 32 blocks:
    spread out or redundant. *(Finding 6)*
 
 **Confidence.**
-- Solid (causal, replicated across rounds, or exact from the weights): 4 (copying), 6 (LI reach), 7 (the funnel).
-- Measured once, needs replication: 1 (the enumeration is exact, but the "generic words" reading is one analysis), 2
-  (5 variants), 3 (one gene window), 8.
-- Tentative: 5 (far context via attention).
+- Solid (causal, replicated across rounds, or exact from the weights): 4 (copying), 6 (LI reach), 7 (the funnel),
+  5 (far context via attention, 5/5 genes).
+- **Bit-identical replication (round 3b):** the whole round-3 result set reproduced exactly on a different A100 SKU
+  and CUDA version, so 2, 3 and 8 are no longer "measured once" in the numerical sense — though replication of an
+  arithmetic result is not the same as replication across genomes or checkpoints.
+- **Pending a null model:** 1 (block 0). The enumeration is exact and the "generic 3-letter-word bank" reading is
+  arithmetically sound, but it has no random-weights baseline, and a flat distribution over all 64 words is what an
+  *untrained* gated convolution may also produce. Round 4 (P19) tests this and may retract the reading.
 
 **Not yet known:**
-- what block 30 actually reads (R3.4, crashed; rerun pending);
+- what block 30 actually reads — R3.4 ran but integrated gradients fails its own completeness check at ~100%; the
+  funnel kills the gradient one block back, so the replacement has to be causal (round 4, P18);
+- whether block 0's word bank is learned at all (round 4, P19);
+- whether the copying circuit fires on real genomic repeats or only on our synthetic probe (round 4, P20);
+- whether the model represents amino acids rather than letters (round 4, P21);
 - what the redundant middle layers compute;
-- whether LI carries far context;
+- whether LI carries far context (its condition keeps breaking);
 - whether this holds for other checkpoints (evo2_7b_262k, evo2_7b_base);
 - how it lines up with the Goodfire SAE features at layer 26.
 
@@ -600,6 +609,180 @@ funnel?" and "does attention do the copying everywhere?". They don't.
 
 Adapter effort: Evo 1 and StripedHyena-7B share one adapter (a different module layout from Vortex, same ideas).
 HyenaDNA needs its own adapter, because its filters come from a small network rather than stored weights.
+
+---
+
+## 2026-09-23: Round 3b, the two reruns (Evo 2 7B, 80 GB A100)
+
+Round 3 lost two of its six steps: the far-context test ran out of memory on a 40 GB card, and the block-30
+attribution crashed on the inference-tensor bug. Both fixes shipped (`memory.py`, `interface._autograd_safe`), and the
+whole notebook was rerun clean — 19 code cells, executed 1 to 19 in order, zero errors, smoke checks 8/8, 37 tests
+passed. Raw outputs: `results/round3b/`.
+
+### The replication is the first result
+
+This run drew an **80 GB A100 on CUDA 13.0**; round 3 had a **40 GB A100 on CUDA 12.8**. Same `vtx` 1.1.0, same
+`evo2` 0.6.0. Every one of the ten result keys shared with round 3 came back **bit-identical**, down to baseline
+health at 16 significant digits (0.6959707140922546 / −0.6843298673629761).
+
+So findings 12 and 14–17 replicated exactly across two A100 SKUs and two CUDA versions. We had not claimed
+reproducibility before; now we can, and for a paper it is worth stating plainly, because "measured once" was the
+confidence label on half the findings.
+
+One caveat on the memory fix: `memory.install()` is unconditional in `HyenaModel.load`, so the chunked filter *was*
+exercised — but on an 80 GB card, where it did not have to save us. It has still never been shown to fit the original
+50k-letter test into 40 GB.
+
+### Finding 17: far context goes through attention (P13's context half, finally run)
+
+Baseline benefit from 50,000 letters of upstream context versus 500: **0.0160 nats/letter**, over 5 genes.
+
+| switched off (load-bearing kept on) | creD | gspE | ilvI | uup | yehQ | mean | of baseline |
+|---|---|---|---|---|---|---|---|
+| nothing | .0163 | .0236 | .0167 | .0078 | .0158 | **.0160** | 100% |
+| SE | .0016 | .0020 | .0004 | .0080 | .0052\* | .0034 | 21% |
+| MR | −.0022 | −.0123 | −.0173 | −.0031 | .0067 | −.0056 | −35% |
+| LI | .0565 | −.0019 | .0715 | −.0188 | **−.8043\*** | −.1394 | −870% |
+| attention | −.0009 | −.0020 | −.0027 | −.0006 | −.0006 | **−.0014** | −9% |
+
+\* flagged broken
+
+**The attention row is the cleanest result in the file.** All five genes go from positive to slightly negative, none
+broken, and the ablated model still predicts well (−0.59 to −1.25, clear of guessing at −1.386). Removing attention
+abolishes the far-context benefit. That upgrades finding 9 from *likely* to *measured*, and settles P2 (registered in
+round 1 as "far context travels through LI") as refuted.
+
+**The LI row is not a result, and we nearly reported it as one.** Mean −0.1394 looks like LI removing 970% of the
+benefit. It is one broken run: yehQ under `-li` scored −2.18 nats/letter — *worse than uniform guessing* — and carries
+the `broken` flag. Drop it and the other four genes average **+0.0268**, i.e. LI removes nothing. P13's own escape
+clause ("if `-li` is still broken, UNTESTABLE") applies. The lesson from round 1 keeps recurring in new disguises: the
+health flag is on every row for a reason, and a mean over a set containing a broken run is not a measurement.
+
+**What this experiment still cannot support.** Two confounds, both worth fixing before any of it goes in a paper:
+
+1. **Headroom.** Every ablated condition sits at −0.96 to −1.37 nats against baseline's −0.30 to −1.02. A model that
+   close to guessing has almost no room left to show a 0.016-nat context gain, so "removed the benefit" is partly
+   confounded with "degraded the model". `-mr` coming out *negative* on 4/5 genes is most likely this, not a finding
+   about MR.
+2. **Signal against noise.** The effect is 0.016 nats and the between-gene spread among healthy `-li` runs is
+   +.0715 / +.0565 / −.0019 / −.0188, about four times larger. Five genes is too few. yehQ is the weakest gene at
+   baseline and the one that breaks in two conditions — a bad probe that should be replaced.
+
+### R3.4: the fix worked, the method did not
+
+Integrated-gradients attribution at block 30's input now runs at all 6 positions. All 6 **fail the completeness
+self-check at ~100%**: attribution sums to ~0.001 where the real change in `f` is up to 5.9. P14 pre-registered
+"completeness error > 25% means the method fails here", so the answer is UNTESTABLE, and under invariant 1 nothing
+underneath it gets reported — including a tempting regularity, L29's mixer (+0.206) cancelling its own MLP (−0.207)
+at every single position.
+
+What the failure *does* show is the funnel running backwards. Share of absolute attribution by block:
+
+```
+L29: 97.7-100.0%     L28: 0.0-2.3%     L27 and earlier: 0.0%
+```
+
+The gradient dies going backward at the same rate the activations grow going forward. Best explanation: block 30
+amplifies to ~10¹² and the final RMSNorm divides that scale straight back out, so `f` depends on a *direction* that
+can flip sharply at one point along the path from the embedding-only baseline to the real residual. 32 midpoint
+samples step over the spike and integrate to nothing. The embedding-only baseline makes it worse — a residual with
+zero writes is somewhere the model has never been.
+
+This is worth stating as a finding rather than a failure, because it generalises: **the block-30 funnel defeats
+gradient-based attribution.** Anything that wants to know what Evo 2 reads has to be causal. Round 4 opens with a
+512-point forward-only scan of `f` along that path (P18) to confirm the shape, and then replaces the method with
+mean-ablation of each write entering block 30.
+
+---
+
+## 2026-09-23: Round 4, biology instead of string statistics
+
+Round 4 came out of showing the round-0-to-3 lab notebook to a working biologist. The criticism was not about any
+number in it. It was about what the numbers are *of*: every test so far is a sequence-statistics test — copy a random
+200-letter stretch, measure codon periodicity, score next-letter accuracy. None of them asks the model to do anything
+a biologist would call a biological process.
+
+Three concrete challenges came out of that conversation, and one of them is a control we already owed ourselves.
+
+### The challenges
+
+**1. "Attention mediates exact sequence retrieval, not a biological process."** Our headline copying result uses a
+*random* insert. That proves the model *can* retrieve. It does not show the circuit is used when reading a genome —
+the synthetic probe may recruit machinery real DNA rarely touches. Our own novelty check already conceded that
+"attention does lookup" is established in text hybrids and that ours is an extension; if the extension only holds on
+a synthetic task, it is a weaker extension than we have been claiming.
+
+**2. "Make sure block 0 isn't learning — it's just a filter."** Block 0 gives detector channels to all 64 three-letter
+words, median 46, mean 45.2. That distribution is suspiciously *flat*, and flat is exactly what an untrained gated
+9-letter convolution might produce from random projections. The literature review already recorded this as owed
+("a random-weights baseline: would untrained Hyena gates produce 3-letter-word detectors anyway?"), from the
+bio-foundation-model review that calls null models the field's missing control. A biologist reached the same
+objection independently, which is a good sign about the objection and a bad sign about our having deferred it.
+
+**3. "Do a translation test."** Read as the genetic code: we have shown the model tracks the reading *frame* (finding
+13, MR layers). We have never asked whether it knows what a codon *means*.
+
+A fourth suggestion — protein folding — does not transfer, and the honest answer is to say so. Evo 2 is a nucleotide
+model that never observes 3D structure. There is no well-posed "which part computes folding" question to ask it; any
+test would be a long indirect chain through codon usage and translation rate. That is a category mismatch with the
+model's input, not a limitation of the method.
+
+### What round 4 runs
+
+Ordered so that the test which can invalidate existing findings runs first. All of R4.1-R4.3 use data already in the
+repo — no new downloads, and E. coli throughout.
+
+| step | question | new code | prediction |
+|---|---|---|---|
+| R4.0 | is the IG failure a sharp path? then replace it with causal ablation at block 30's input | — | P18 |
+| R4.1 | is block 0's word bank learned, or architectural? | `nullmodel.py` | P19 |
+| R4.2 | does the copying circuit fire on real genomic repeats? | `genome.py` | P20 |
+| R4.3 | does Evo 2 represent amino acids, or only letters? | `codons.py` | P21, P22 |
+
+**R4.1, the null model.** `nullmodel.random_weights` swaps a block's parameters for random ones and restores them
+exactly. The default mode *shuffles* each tensor, preserving the weight multiset exactly — same mean, variance, every
+moment — so only the arrangement is destroyed and anything that survives is architecture rather than training. Then
+the same 4⁹ enumeration runs on the scrambled block 0 and the two 64-word distributions are compared. Restoration is
+checked twice (bit-identical logits in the test suite, `verify_restored` in the notebook) because everything measured
+afterwards depends on it.
+
+We expect this to go against us: P19 predicts the shuffled null *also* produces a flat bank for all 64 words. If so,
+findings 4, 10, 15 and 16 describe a gated 9-letter convolution rather than anything Evo 2 learned, and the README
+and the living summary both need rewording. Registering that expectation before running is the point of the exercise.
+
+**R4.2, real repeats.** `genome.find_repeat_families` pulls E. coli's actual repeat families out of the GenBank
+annotations — the seven rRNA operons, the IS elements — and `repeat_probes` builds the round-1 copy probe three ways
+at matched geometry: the real repeat, the same repeat with its letters shuffled (composition held, biology gone), and
+a random insert. The measured quantity is the **retrieval gain**, `second_lp − first_lp`, not the second copy's raw
+score. That distinction is the whole design: a real rRNA copy already scores well on its *first* appearance because
+the model knows rRNA, and only the gain isolates what retrieval added on top of prior knowledge.
+
+**R4.3, translation.** The genetic code is redundant, so there is a clean controlled comparison: at one codon, change
+the third letter two ways — silently (ATT→ATC, both isoleucine) and missense (ATT→ATG, isoleucine→methionine). Same
+site, same codon position, same edit distance, same neighbours; the only difference is whether the protein changed.
+Eight codon families admit both, which is what `codons.wobble_sites` looks for. Premature stops are excluded by
+default: a stop is a far larger biological event than an amino-acid swap, and mixing it into the missense arm would
+confound "the protein changed" with "the protein ended". Stops get their own arm (P22), which is also the behavioural
+counterpart of Evo 2's published SAE feature f/24278.
+
+`codons.divergence_by_block` then measures where the two arms part company, per block, relative to each block's own
+write size so that block 30's ~10¹² does not swamp the comparison. That is the localisation: the depth at which the
+genetic code gets applied.
+
+### One methodological note that shapes all of it
+
+The obvious way to answer "which part lights up when the model does biology" is attribution, and R3.4 just showed why
+that will not work here: the gradient reaches exactly one block back before the funnel kills it. Every round-4
+measurement is therefore causal — ablation, patching, matched substitutions — or representational at intermediate
+blocks. None of them reads through the output. The block-30 bottleneck is not just a finding about Evo 2; it is a
+constraint on what can be measured in it, and it is the reason the natural experiment design has to be abandoned.
+
+### Writing this up
+
+The goal these round-4 tests are pointed at is a conference paper on how Evo 2 reaches a decision. The ordering
+reflects that: P19 can retract three existing findings, so it runs before anything is written; P20 decides whether
+the copying result is about genomes or about our probe; P21 and P22 are the first tests in this project where a
+positive result would be a statement about biology rather than about sequence statistics.
 
 ---
 

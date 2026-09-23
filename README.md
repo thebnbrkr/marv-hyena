@@ -42,6 +42,9 @@ that checks the claim. This repo is built to check it.
 | `sae` | Which operator types build this SAE feature? Edit features in a live forward pass | Goodfire layer-26 SAE: decomposition and error-preserving edits |
 | `vindex` | MARV's neuron index for Evo 2's MLPs; checkpoint diff; label neurons with biology | GenBank-annotation enrichment (LARQL's feature labels, with biology as the answer key) |
 | `probes`, `variants` | Test inputs with a known right answer | copy test, context truncation, codon phase, variant windows |
+| `nullmodel` | Is this finding learned, or just the architecture? | weight-shuffled null with exact restoration |
+| `genome` | Does the copying circuit fire on **real** repeats? | rRNA operons / IS elements vs. shuffled vs. random |
+| `codons` | Does the model represent **amino acids**, or only letters? | silent vs. missense at the same codon site |
 
 **Every exact decomposition checks itself.** `trace` compares its sum
 against the model's real logits. `distance` compares its reconstruction
@@ -51,7 +54,7 @@ Vortex computes something differently from what this code assumes.
 
 ## What we've found so far (Evo 2 7B)
 
-Short version, as of round 3. The reasoning, numbers and mistakes are in [`RESEARCH_LOG.md`](RESEARCH_LOG.md), and
+Short version, as of round 3b. The reasoning, numbers and mistakes are in [`RESEARCH_LOG.md`](RESEARCH_LOG.md), and
 predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 
 - **One block decides.** Block 30's output is ~10⁵× larger than any other, so the prediction is a function of block
@@ -63,13 +66,31 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 - **"Long" LI filters are mostly short** (4–7 letters), with a few long-reaching channels.
 - **Block 0 is a generic bank of 3-letter-word detectors.** Start and stop codons aren't special, and 18% of its
   channels are dead.
+- **Far context goes through attention.** 50,000 letters of upstream DNA are worth 0.016 nats/letter, and removing
+  attention erases all of it on 5/5 genes while the model stays healthy.
 - **Six load-bearing layers** (L0, L1, L4, L9, L29, L30); every other single layer is individually expendable.
+- **Round 3 replicated bit-identically** on a different A100 SKU and CUDA version (round 3b).
+
+Three caveats we hold ourselves to, all being tested in round 4:
+
+- The **block-0 findings have no null model yet.** A flat distribution over all 64 three-letter words is also what an
+  *untrained* gated convolution may produce, so "generic word-detector bank" may describe the architecture rather
+  than anything Evo 2 learned (P19).
+- The **copying result uses a synthetic random insert.** Whether the circuit fires on real genomic repeats is
+  untested (P20).
+- **The funnel defeats gradient attribution.** Integrated gradients at block 30's input fails its completeness check
+  at ~100%: the gradient reaches exactly one block back. Anything measuring what block 30 reads has to be causal.
 
 ## Run it on Colab
 
 - **Round 1** (the first full pass): `notebooks/marv_hyena_colab.ipynb`.
 - **Round 2** (redesigned after round 1; see [`RESEARCH_LOG.md`](RESEARCH_LOG.md)):
   [`notebooks/marv_hyena_round2_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round2_colab.ipynb)
+- **Round 3** (measuring at the bottleneck): `notebooks/marv_hyena_round3_colab.ipynb`. Results in `results/round3/`,
+  and `results/round3b/` for the rerun of the two steps that failed.
+- **Round 4** (null model and biology):
+  [`notebooks/marv_hyena_round4_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round4_colab.ipynb).
+  Needs no new data — E. coli and the GenBank annotations already in the repo.
 
 
 Open [`notebooks/marv_hyena_colab.ipynb`](notebooks/marv_hyena_colab.ipynb) with the badge above. Choose
@@ -90,7 +111,7 @@ pip install evo2                  # on Python 3.13 use: pip install --ignore-req
 pip install flash-attn==2.8.0.post2 --no-build-isolation   # optional; skipped automatically if absent
 # 2. this repo
 cd marv-hyena && pip install -e .
-python -m pytest -q          # 37 tests on a tiny CPU model, runs anywhere
+python -m pytest -q          # 60 tests on a tiny CPU model, runs anywhere
 ```
 
 A100s have no FP8, so only the 7B checkpoints run (`evo2_7b`, `evo2_7b_262k`,
@@ -160,21 +181,28 @@ marv_hyena/
   memory.py      chunked long-LI filter build: bit-identical, fits 50k-letter inputs on a 40 GB GPU
   interface.py   integrated-gradients attribution at a bottleneck block's input (round 3)
   diagnostics.py write_norms, find_bottlenecks, health (round 2)
+  nullmodel.py   random_weights: weight-shuffled null, restored exactly (round 4)
+  genome.py      real repeat families from GenBank; three-arm copy probes (round 4)
+  codons.py      genetic code; wobble sites; silent vs. missense divergence (round 4)
   checks.py      run_smoke_checks (shared by scripts/smoke_test.py and the notebook)
   experiments.py copy_test, codon_test, context_test (the PREDICTIONS.md experiments)
 notebooks/       marv_hyena_colab.ipynb: the whole pipeline on a Colab A100
 scripts/         smoke_test, filter_reach, run_copy_test, block0_motifs, explain_variant
-tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 37 tests
+tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 60 tests
 PREDICTIONS.md   pre-registered predictions; outcomes get appended, never edited
 RESEARCH_LOG.md  what we ran, what happened, what went wrong (plain language)
 ```
 
 ## Status and limits
 
-- **Not yet run on real Evo 2.** It was written against the Vortex source
-  (`vtx` 1.0.8, commit `8b00afe`) and tested on a tiny model that copies
-  Vortex's module names and math. `smoke_test.py` is the bridge to the real
-  model.
+- **Run on real Evo 2 7B** (rounds 1–3b, Colab A100). Written against the
+  Vortex source (`vtx` 1.0.8, commit `8b00afe`; runs verified on 1.1.0) and
+  tested on a tiny model that copies Vortex's module names and math.
+  `smoke_test.py` is the bridge to the real model and has passed 8/8 on every
+  round. Round 3's full result set reproduced **bit-identically** on a
+  different A100 SKU and CUDA version.
+- **Only `evo2_7b` so far.** Nothing has been checked on `evo2_7b_262k` or
+  `evo2_7b_base`, so every finding is one checkpoint deep.
 - **`distance` does not decompose attention blocks.** Flash attention
   doesn't expose its weights. Use patching and context truncation for
   attention.

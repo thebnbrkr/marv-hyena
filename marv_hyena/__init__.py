@@ -14,6 +14,9 @@ from .intervene import (
     token_logprobs,
     zero_ablate,
 )
+from .codons import GENETIC_CODE, WobbleSite, translate, translation_test, wobble_sites
+from .genome import RepeatFamily, find_repeat_families, repeat_probes, run_repeat_test
+from .nullmodel import random_weights, verify_restored
 from .probes import CopyProbe, Track, codon_phase_accuracy, copy_probe, genbank_track, score_copy, truncation_curve
 from .trace import (
     Decomposition,

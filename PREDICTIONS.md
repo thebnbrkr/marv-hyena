@@ -367,3 +367,171 @@ matching its `…ATGC` top inputs. Mean total effect peaks within the last 3 pos
 - Channel 263 has zero total effect at all 9 positions: it's a dead channel, and 724 channels (18%) are.
 - Mean total effect peaks at the current letter (0.309) and 2 back (0.301), which is within the last 3 positions.
 - The indices sum to 1.75 on average, meaning strong letter-combination effects.
+
+---
+
+## Round 3b outcomes (rerun of the two failed steps, 2026-09-23)
+
+Round 3's R3.3 far-context step ran out of memory and R3.4 crashed. Both were fixed (`memory.py`,
+`interface._autograd_safe`) and the whole notebook was rerun on an 80 GB A100 / CUDA 13.0, versus round 3's 40 GB /
+CUDA 12.8. Raw outputs: `results/round3b/`. The ten result keys shared with round 3 came back **bit-identical**,
+including baseline health to 16 digits (0.6959707140922546), so findings 12 and 14-17 replicated exactly across two
+A100 SKUs and two CUDA versions. These outcomes are appended, not substituted; the round-3 entries above stand.
+
+### P13, context half (was: NOT RUN, out of memory)
+
+**Outcome (2026-09-23, round 3b):** ATTENTION CLAUSE CONFIRMED; LI CLAUSE UNTESTABLE.
+
+Baseline far-context benefit is 0.0160 nats/letter over 5 genes (creD .0163, gspE .0236, ilvI .0167, uup .0078,
+yehQ .0158), consistent with round 2's finding 9.
+
+- `-attn` removes **109%** of it (mean −0.0014), on 5/5 genes, none flagged broken, model still well clear of
+  guessing (−0.59 to −1.25 vs −1.386). The predicted ≥80% is met. **Far context goes through attention.**
+- `-li` (keeping the load-bearing layers on) came out at mean −0.1394, apparently removing 970%. That number is
+  **an artifact of a single broken run**: yehQ under `-li` scored −2.18 nats/letter, worse than uniform guessing, and
+  is flagged `broken`. Excluding it, the remaining four genes average **+0.0268** — LI removes none of the benefit.
+  P13's own clause applies: *"If `-li` is still broken, UNTESTABLE."* So the LI half is untestable, not confirmed,
+  and the refutation condition ("`-li` removes more than `-attn`") is **not** met on the healthy runs.
+
+**Caveats to carry forward.** Every ablated condition sits at −0.96 to −1.37 nats against baseline's −0.30 to −1.02,
+so "benefit removed" is partly confounded with "model degraded" — a model near guessing has little headroom to show a
+0.016-nat gain. `-mr` going negative on 4/5 genes is most likely this. The surviving `-li` genes swing +.0715 /
++.0565 / −.0019 / −.0188, a spread four times the signal. yehQ is the weakest gene at baseline and breaks in two
+conditions; it is a poor probe and should be replaced. Round 4 should raise the gene count and match conditions on
+baseline headroom before this is reported as a number.
+
+### P14 (was: NOT RUN, crashed)
+
+**Outcome (2026-09-23, round 3b):** UNTESTABLE — the method fails its own gate.
+
+The autograd fix works and all 6 positions ran. Every one fails the completeness self-check at ~100%:
+
+| region | pos | f(u)−f(base) | sum(attr) | completeness err |
+|---|---|---|---|---|
+| gene | 204001 | +3.173 | −0.0005 | 100.0% |
+| gene | 305848 | +0.087 | +0.0008 | 99.1% |
+| gene | 399989 | +5.886 | −0.0022 | 100.0% |
+| intergenic | 209630 | +0.834 | +0.0000 | 100.0% |
+| intergenic | 303820 | +4.315 | −0.0002 | 100.0% |
+| intergenic | 399582 | −0.156 | +0.0005 | 100.4% |
+
+P14 pre-registered "completeness error > 25% (the method fails here)", so this is UNTESTABLE, and under invariant 1
+nothing underneath is reportable — including the striking near-exact cancellation of L29's mixer (+0.206) against its
+own MLP (−0.207) at every position. Integrated gradients attributes zero where the real change is up to 5.9.
+
+The failure has a consistent shape: the gradient reaches back **exactly one block**. Share of absolute attribution is
+L29 97.7–100.0%, L28 0.0–2.3%, L27 and earlier 0.0% — the funnel running backwards, the gradient dying as fast as the
+activations grow. The likely cause is that `f` along the straight path from the embedding-only baseline to the real
+residual is near-discontinuous (block 30 amplifies to ~10¹², the final RMSNorm divides the scale back out, so `f`
+depends on a direction that can flip sharply at one point on the path), and 32 midpoint samples step over it.
+Diagnosis and replacement are R4.0 and P18 below.
+
+---
+
+## Round 4 predictions (registered 2026-09-23, before running `notebooks/marv_hyena_round4_colab.ipynb`)
+
+Round 4 answers three challenges to the round-3 results, two of them raised by a biologist reading the lab notebook,
+one owed to the literature review since the round-3 novelty check. Ordered so that the test which can *invalidate
+existing findings* runs first.
+
+### P18: the integrated-gradients failure is a sharp path, not a wrong gradient
+
+**Test:** R4.0, `f(e + a(u−e))` evaluated on a dense grid of 512 values of `a` at the same 6 positions, forward passes
+only.
+
+**Prediction:** `f` is not smooth along the path. At least one adjacent pair of grid points differs by ≥ 25% of the
+total `f(u) − f(e)` range, and ≥ 80% of the total variation is concentrated in < 10% of the path.
+
+**Refuted if:** `f` varies smoothly (no single step above 10% of the range), in which case integrated gradients should
+have worked and the ~100% completeness error is a bug in `interface.block_input_attribution`, not a property of the
+model.
+
+**Either way:** attribution at block 30's input moves to causal mean-ablation of each incoming write (R4.0b), which
+needs no autograd, no completeness assumption, and yields a total effect rather than a direct one.
+
+---
+
+### P19: block 0's word-detector bank is architectural, not learned
+
+**Test:** R4.1, the full 4⁹ enumeration rerun with block 0's weights shuffled (`nullmodel.random_weights`,
+mode="shuffle", 3 seeds), compared against the trained block 0 on the same composition-controlled 64-word counts.
+
+This is the null model the bio-foundation-model review (bioRxiv 2026.03.04.709491) asks for and the round-3 literature
+review recorded as owed. Shuffling preserves the weight multiset exactly, so anything that survives is a property of
+the architecture and the weight distribution, not of training.
+
+**Prediction (the honest expectation, which is that our own finding is mostly a null result):** the shuffled block 0
+also produces detector channels for all 64 three-letter words with a flat distribution — its coefficient of variation
+across the 64 words is within 50% of the trained model's, and its median count is within a factor of 2 of 46.
+
+**Refuted if:** the shuffled null gives a visibly different distribution — CV differing by more than 2×, or median
+count below 10 or above 150.
+
+**What each outcome costs us.** If confirmed, findings 4, 10, 15 and 16 describe the *architecture* of a gated
+9-letter convolution, not anything Evo 2 learned, and every block-0 claim in `RESEARCH_LOG.md` and the README must be
+reworded to say so. If refuted, block 0 learned something, and the difference from the null is the first honest
+description of *what*.
+
+**Secondary:** the 724 dead channels (18%). Prediction: the shuffled null has fewer than half as many dead channels
+(< 9%), because deadness is a learned outcome rather than an architectural one.
+
+---
+
+### P20: the copying circuit fires on real genomic repeats, not just our synthetic one
+
+**Test:** R4.2, `genome.repeat_probes` on E. coli's real repeat families (rRNA operons, IS elements), three arms at
+matched geometry — real repeat / letter-shuffled repeat / random insert — scored under the round-3 family ablations
+with the load-bearing layers kept on. The statistic is the **retrieval gain**, `second_lp − first_lp`, not the raw
+second-copy score: a real rRNA copy scores well on its first appearance because the model knows rRNA, and only the
+gain isolates what retrieval added.
+
+**Prediction:** the real arm shows a substantial retrieval gain (≥ 0.5 nats at a 1,000-letter gap), and `-attn`
+removes ≥ 70% of it while leaving `first_lp` within 0.15 nats of baseline. The gain on the real arm is within a
+factor of 2 of the gain on the random arm.
+
+**Refuted if:** the real arm's retrieval gain survives `-attn` (< 30% removed), which would mean the round-1-3 copying
+result was specific to the synthetic probe and attention is not what reads real repeats; or the real arm shows
+essentially no gain (< 0.1 nats), which would mean the model predicts real repeats from prior knowledge alone and
+never retrieves.
+
+---
+
+### P21: Evo 2 represents amino acids, not just letters
+
+**Test:** R4.3, `codons.wobble_sites` + `translation_test` on ≥ 100 forward-strand CDS codon sites in E. coli where
+substituting the third letter can be either silent or missense. Same site, same codon position, same edit distance;
+the only difference is whether the encoded amino acid changed. Premature stops excluded (`allow_stop=False`).
+
+**Prediction (decided on the paired sign test):** the missense substitution disturbs the model more than the silent
+one **at the same site** in ≥ 65% of sites (`nonsyn_more_disruptive_frac`). This statistic is paired, threshold-free
+and sign-aware, which is why it is the one that decides P21.
+
+**Secondary, reported with its sample size:** the median ratio of downstream effects is ≥ 1.2. The ratio is only
+defined at sites where the silent arm's own effect is clearly disruptive (< −0.25 nats over the 200-letter
+downstream span); a ratio of two signed quantities that straddle zero is not a statistic, which is the mistake round
+1 made with its FUNC variant's ±200% "fractions". If `n_usable` < 20 this number is not reported at all.
+
+**Refuted if:** missense and silent are indistinguishable — between 45% and 55% of sites on the sign test — which
+would say Evo 2 models nucleotide statistics and the codon rhythm of finding 13 is periodicity without meaning.
+
+**Localisation (reported either way):** the block at which the missense and silent arms diverge most,
+`peak_divergence_block` from `codons.divergence_by_block`. Prediction: the modal peak block is > 7, i.e. later than
+the early hand-off stage of finding 14, because reading an amino acid needs the whole codon assembled.
+
+---
+
+### P22: nonsense beats missense
+
+**Test:** R4.3 rerun with `allow_stop=True`, comparing sites whose non-synonymous alternative is a premature stop
+against those whose is an ordinary amino-acid change.
+
+**Prediction:** premature stops disturb the model more than missense changes, by a ratio of median downstream effects
+≥ 1.5 (comparing the nonsense arm's median `nonsyn_effect` against the missense arm's, both over `usable` sites).
+This is the behavioural counterpart of Evo 2's SAE feature f/24278, which the Evo 2 paper reports firing on
+frameshifts and premature stops.
+
+**Refuted if:** stops and ordinary missense changes are indistinguishable (ratio within 1.0 ± 0.1), which would put
+our measurement at odds with the published SAE feature and mean one of the two is not measuring what it claims.
+
+**Untestable if** fewer than 20 nonsense sites clear the `usable` threshold in the window, in which case widen the
+track rather than reporting a number.
