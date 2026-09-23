@@ -986,7 +986,7 @@ none.** That asymmetry is new, and it is what made the fair family tests of roun
 
 | paper | what it means for us |
 |---|---|
-| [**PAS-ISP**](https://arxiv.org/abs/2608.12149) (Aug 2026) — massive activations in hybrids **spike immediately before full-attention layers** | **The live threat to the funnel.** Block 30 (LI) sits immediately before block 31 (attn): textbook pre-attention-spike position. Cuts our way only partly — they cover five *linear-attention* architectures, explicitly not Hyena, conv mixers or DNA, and in our model block 31 does nothing at all. **Read the full text before writing the funnel as novel.** |
+| [**PAS-ISP**](https://arxiv.org/abs/2608.12149) (Aug 2026) — massive activations in hybrids **spike immediately before full-attention layers**, then plateau through the intervening linear-attention layers | Looked like the live threat to the funnel, since block 30 (LI) sits immediately before block 31 (attn). **Checked and cleared — see finding 22 below.** |
 | [**Mamba activation-subspace bottleneck**](https://arxiv.org/html/2602.22719) — a Layer-20 bottleneck with "low gradient sensitivity and extremely high post-ablation KL divergence" | Our exact finding-20 signature, in a different architecture. Demotes "gradients fail, ablation works" from discovery to convergent confirmation — which is still worth reporting, and worth citing. |
 | [**Memorization in genomic LMs**](https://arxiv.org/html/2603.08913) — Evo **1** recovers 100% of planted canaries; their canaries are "random nucleotide strings carrying no biological structure" and they say it "remains an open question whether memorization of real sequences would manifest at comparable rates" | Our synthetic copy probe is their canary experiment; they show *that* Evo recovers, we show *which component does it*. Our 16S result sits precisely in their stated gap, and their framing is why "prior knowledge" is the right word, not "memorisation". |
 
@@ -1009,8 +1009,39 @@ model.
 4. The operator-family load-bearing asymmetry.
 
 **Confirm-and-extend, and should be written that way:** copying/retrieval (Zoology, arXiv 2609.04434);
-gradients-fail-ablation-works (Mamba subspace); the load-bearing map (ShortGPT, Genes 16:1358); the funnel (pending
-PAS-ISP).
+gradients-fail-ablation-works (Mamba subspace); the load-bearing map (ShortGPT, Genes 16:1358).
+
+### Finding 22: the funnel is not a pre-attention spike
+
+PAS-ISP measures `max_j |X_{t,j}|` — the single largest *dimension* of a token's hidden state — at attention-sink
+token positions, in text hybrids built from linear attention (RetNet, HGRN, GLA, DeltaNet, GDN; Qwen3.5, Kimi
+Linear, Nemotron-H, Zamba2). It covers no convolutional mixer, no Hyena, and no non-text domain, and it discusses
+neither final layers, nor output logits, nor gradients. Its only intervention is modulating output gating; it never
+deletes a spike.
+
+Ours is the **L2 norm of the entire write**, at **every position measured**, in the **final** blocks, and
+mean-ablating it breaks the model. Different quantity, different place, different architecture.
+
+The decisive test was already in `results/round2/`. If block 30's magnitude were a PAS, the other four attention
+layers (3, 10, 17, 24) should show spikes before them, at blocks 2, 9, 16 and 23. Each pre-attention block against
+the mean of its nearest non-attention neighbours, in all three genome regions:
+
+| block | region 0 | region 1 | region 2 |
+|---|---|---|---|
+| L2 | 0.88x | 0.83x | 0.90x |
+| L9 | 1.41x | 1.43x | 1.58x |
+| L16 | 1.87x | 1.88x | 1.88x |
+| L23 | 1.14x | 0.98x | 1.04x |
+| **L30** | **3.2e6 x** | **1.7e7 x** | **5.5e6 x** |
+
+**Evo 2 has no consistent pre-attention spike.** L2 sits *below* its neighbours, L23 is flat, and L9/L16 are mildly
+elevated in the way a depth trend produces. Block 30 is six to seven orders of magnitude past anything PAS predicts.
+And in PAS-ISP the spike exists to serve the attention layer after it, whereas block 31's attention write is 0.38 and
+removing it gives bit-identical output: our spike feeds a dead layer.
+
+So PAS-ISP is related work, not a scoop, and the separation is quantitative rather than rhetorical. It arguably
+strengthens the funnel: the known hybrid morphology is *absent* here, and something categorically different is
+present instead.
 
 **One framing fight worth having in print.** The bio-FM review's position — and essentially all bio-FM
 interpretability — is that the unit of analysis is the **feature**, via SAEs. Our work is entirely
