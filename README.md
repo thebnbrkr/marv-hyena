@@ -44,7 +44,8 @@ that checks the claim. This repo is built to check it.
 | `probes`, `variants` | Test inputs with a known right answer | copy test, context truncation, codon phase, variant windows |
 | `nullmodel` | Is this finding learned, or just the architecture? | weight-shuffled null with exact restoration |
 | `genome` | Does the copying circuit fire on **real** repeats? | rRNA operons / IS elements vs. shuffled vs. random |
-| `codons` | Does the model represent **amino acids**, or only letters? | silent vs. missense at the same codon site |
+| `codons` | Does the model represent **amino acids**, or only letters? | silent vs. missense at the same codon site, matched on letter type (round 5) |
+| `controls` | Could something other than the claim produce this number? | paired sign tests, paired regression, peak-by-difference, cutoff sweep |
 
 **Every exact decomposition checks itself.** `trace` compares its sum
 against the model's real logits. `distance` compares its reconstruction
@@ -64,19 +65,22 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 - **The reading frame (codon rhythm) lives in the MR (medium) layers**, not the SE (short) ones.
 - **Mutations are judged early and locally.** Their effect leaves the mutated position within blocks 0–7.
 - **"Long" LI filters are mostly short** (4–7 letters), with a few long-reaching channels.
-- **Block 0 is a generic bank of 3-letter-word detectors, and it is LEARNED.** Start and stop codons aren't special,
-  and 18% of its channels are dead. A weight-shuffled block 0 produces **zero** detector channels for all 64 words
-  (3 seeds) against a median of 46 for the trained model, so the bank is not an artifact of the architecture.
-- **SE applies the genetic code; MR carries the frame.** A missense change disturbs the model more than a silent one
-  at the same codon position in 68.9% of 119 sites, and 90.8% of those sites diverge most in an SE block (7/11/14).
-  MR's 128-letter window tracks *where* the frame is; SE's 7-letter window reads *what* the codon says.
+- **Block 0 is a generic bank of 3-letter-word detectors, very likely learned.** Start and stop codons aren't
+  special, and 18% of its channels are dead. A weight-shuffled block 0 produces zero detector channels against a
+  median of 46 per word — but through a single 80% cutoff; round 5 (P28) measures it without one.
+- **MR carries the reading frame.** Whether Evo 2 also represents *amino acids* is under review: round 4's 68.9%
+  (missense beats silent at the same site) is confounded by letter type — on the 17 sites where both changes were
+  transversions, missense won 8/17 — and its "peaks in SE blocks" came from the argmax of a ratio. Round 5
+  (P25, P26) tests both properly.
 - **The funnel defeats gradient attribution.** Integrated gradients at block 30's input attributes zero (a single
   step out of 512 carries ~99% of the function's range). Causal ablation instead reaches all the way back to
   block 0 — so block 30 reads from the whole network, and anything measuring it has to be causal.
-- **Far context goes through attention.** 50,000 letters of upstream DNA are worth 0.016 nats/letter, and removing
-  attention erases all of it on 5/5 genes while the model stays healthy.
+- **Far context: unresolved.** 50,000 letters of upstream DNA are worth 0.016 nats/letter. Removing attention erases
+  it — but so does removing SE, which sees 7 letters, so the test measures damage rather than a pathway.
 - **Six load-bearing layers** (L0, L1, L4, L9, L29, L30); every other single layer is individually expendable.
 - **Round 3 replicated bit-identically** on a different A100 SKU and CUDA version (round 3b).
+- **Review, 2026-09-25**: three round-4 claims failed a control they should have faced from the start (letter type,
+  a ratio statistic, a hard cutoff). The reasoning is in `RESEARCH_LOG.md`; the tests are round 5.
 
 **How this compares to what the architecture paper claims.** StripedHyena 2
 ([arXiv 2503.01868](https://arxiv.org/html/2503.01868v1)) asserts operator specialization in prose, sourced to prior
@@ -84,10 +88,10 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 
 | operator | the architecture paper claims | we measured | |
 |---|---|---|---|
-| **SE** | "local multi-token **recall**" | no part in recall; applies the **genetic code** | wrong |
+| **SE** | "local multi-token **recall**" | no part in recall (copying intact without it) | wrong on recall; its positive role is under review |
 | **MR** | "modeling across hundreds of tokens" | tracks the **reading frame** specifically | made specific |
-| **LI** | "aggregate over the **entire sequence**" | channels mostly reach **4–7 letters**; no far context | wrong |
-| **attn** | "recall across **longer** sequences" | essential at **every** distance, plus far context | understated |
+| **LI** | "aggregate over the **entire sequence**" | channels mostly reach **4–7 letters** | mostly local; far context untested fairly |
+| **attn** | "recall across **longer** sequences" | essential for copying at **every** distance | understated |
 
 Caveats we hold ourselves to:
 
@@ -108,6 +112,7 @@ Caveats we hold ourselves to:
 - **Round 4** (null model and biology):
   [`notebooks/marv_hyena_round4_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round4_colab.ipynb).
   Needs no new data — E. coli and the GenBank annotations already in the repo.
+- **Round 5** (controls that could explain round 4 away): `notebooks/marv_hyena_round5_colab.ipynb`.
 
 
 Open [`notebooks/marv_hyena_colab.ipynb`](notebooks/marv_hyena_colab.ipynb) with the badge above. Choose
@@ -128,7 +133,7 @@ pip install evo2                  # on Python 3.13 use: pip install --ignore-req
 pip install flash-attn==2.8.0.post2 --no-build-isolation   # optional; skipped automatically if absent
 # 2. this repo
 cd marv-hyena && pip install -e .
-python -m pytest -q          # 60 tests on a tiny CPU model, runs anywhere
+python -m pytest -q          # 83 tests on a tiny CPU model, runs anywhere
 ```
 
 A100s have no FP8, so only the 7B checkpoints run (`evo2_7b`, `evo2_7b_262k`,
@@ -200,12 +205,13 @@ marv_hyena/
   diagnostics.py write_norms, find_bottlenecks, health (round 2)
   nullmodel.py   random_weights: weight-shuffled null, restored exactly (round 4)
   genome.py      real repeat families from GenBank; three-arm copy probes (round 4)
-  codons.py      genetic code; wobble sites; silent vs. missense divergence (round 4)
+  codons.py      genetic code; wobble sites; letter-type-matched paired designs (rounds 4-5)
+  controls.py    checks that can explain a finding away: paired stats, peak-by-difference, cutoff sweep (round 5)
   checks.py      run_smoke_checks (shared by scripts/smoke_test.py and the notebook)
   experiments.py copy_test, codon_test, context_test (the PREDICTIONS.md experiments)
 notebooks/       marv_hyena_colab.ipynb: the whole pipeline on a Colab A100
 scripts/         smoke_test, filter_reach, run_copy_test, block0_motifs, explain_variant
-tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 60 tests
+tests/           tiny_hyena.py (Vortex's module names + math, CPU, float32) + 83 tests
 PREDICTIONS.md   pre-registered predictions; outcomes get appended, never edited
 RESEARCH_LOG.md  what we ran, what happened, what went wrong (plain language)
 ```

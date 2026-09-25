@@ -602,3 +602,113 @@ test, mean effect −38.1 nats vs −0.7 for missense — but not reportable.
 Our own design flaw contributed: `usable` gates on the **silent** arm, which is correct for P21 and wrong for P22.
 At these sites the silent arm averaged +0.23, disqualifying rows whose nonsense arm was enormous. Round 5: widen the
 track, and gate P22 on its own arm.
+
+---
+
+## Round 4 review (2026-09-25): outcomes that need a caveat
+
+Appended, not edited: the round-4 outcomes above stand as recorded. This section records why four of them are
+weaker than they read, found by re-analysing `results/round4/results_round4.json` and `results/round3b/`.
+
+- **P21 (CONFIRMED above) is confounded by letter type.** At the third codon letter the silent change is almost
+  always a *transition* (A↔G, C↔T) and the missense change a *transversion*. Of the 119 sites, 102 were
+  silent-transition vs missense-transversion; missense won 72.5% of those. On the 17 sites where both arms were
+  transversions (all isoleucine, ATT/ATC → ATA vs ATG), missense won **8/17 = 47%** (95% CI 26–69%). Those 17
+  are themselves confounded the other way (the silent arm lands on ATA, a rare codon; Ile→Met is a mild swap), so
+  they cannot show amino-acid blindness either. P21's clauses were met; what they measured is not yet separable from
+  "transversions surprise the model more". Tested properly in P25.
+- **P21's localisation clause ("modal peak block 11", "90.8% SE") used the argmax of a missense/silent ratio**
+  across 32 blocks. At the winning blocks the ratio was 5–7×, against 1.32× end-to-end — the signature of small
+  denominators. Per-block numbers were not saved, so it cannot be rechecked from the JSON. Tested in P26.
+- **P19 (REFUTED, "block 0 is learned") rests on one hard cutoff.** A channel counts as a word detector only if ≥80%
+  of its top-50 inputs share the word. An exact 0 across all 64 words and 3 seeds is what a cutoff cliff produces
+  when shuffled channels are *less* selective, not necessarily *un*selective. Tested without a cutoff in P28.
+- **P20's "-attn keeps −313%"** is a ratio over a 0.028-nat baseline gain. `genome.summarize_repeat_test` now
+  returns NaN below 0.1 nats.
+- **P13's context half ("ATTENTION CLAUSE CONFIRMED", round 3b) does not survive its own negative control.** In the
+  same run, removing SE — which reaches 7 letters and cannot carry 50,000 letters of context — cut the benefit from
+  +0.0160 to +0.0030 (−81%, 4 healthy genes), and MR erased it (−0.0056). Every ablation drops health from 0.696 to
+  0.43–0.57 against a 0.016-nat effect: the test measures damage, not a pathway. The attention reading is withdrawn;
+  which operator carries far context is unknown. (This reading was written on 2026-09-23 in an uncommitted working
+  copy and is restored here.)
+- **P22 context:** the Evo 2 paper (Brixi et al., Nature 2026, Fig. 2) already shows, across 36 species, that
+  missense and premature-stop changes lower likelihood more than silent ones. The *behaviour* in P21/P22 is not new;
+  only its localisation would be. Its main text does not report a transition/transversion or codon-usage control.
+
+---
+
+## Round 5 predictions (registered 2026-09-25, before running `notebooks/marv_hyena_round5_colab.ipynb`)
+
+Every design compares two single-letter substitutions **at the same position**, picked by (kind, letter type) with
+`codons.paired_sites`, from sites spread across the whole E. coli genome. "More disruptive" means a more negative
+downstream effect (log-prob of the next 200 letters, alt minus ref). The primary statistic for P23–P25 and P27 is the
+paired sign test: the share of sites where arm b disturbs the model more than arm a, with a 95% Wilson interval.
+
+### P23: letter type matters even when the protein does not change
+
+**Test:** R5.1 `fourfold` — silent transition vs silent transversion at four-fold degenerate third positions (e.g.
+GCT → GCC vs GCA, all alanine).
+
+**Prediction:** the transversion is more disruptive at ≥ 60% of sites.
+
+**Refuted if:** ≤ 55%, in which case letter type is not a live explanation for P21 and round 4's reading stands
+stronger.
+
+### P24: …and outside genes, but less
+
+**Test:** R5.1 `noncoding` — transition vs transversion at the same position in unannotated DNA (no feature within
+20 letters).
+
+**Prediction:** the transversion is more disruptive at ≥ 55% of sites, and at a lower rate than in P23 (coding
+context amplifies letter-type preferences, because the model knows the third codon letter is where variation
+normally happens).
+
+**Refuted if:** ≤ 50%, or more than 10 points above P23's rate.
+
+### P25: Evo 2 represents amino acids beyond letter type
+
+**Test:** R5.2. `matched` — silent transversion vs missense transversion (Ile ATx → ATA vs ATG; Arg CGx → AGx vs
+GGx). `flipped` — silent transversion vs missense *transition* (Arg AGG → CGG vs GGG; Ile ATA → ATT vs ATG), so
+letter type pushes against the hypothesis. Then `controls.paired_regression` over round4 + fourfold + noncoding +
+matched + flipped: the within-site difference against Δmissense, Δtransversion, ΔGC and Δcodon-usage together.
+
+**Prediction:** matched ≥ 60% (sign test p < 0.05); flipped ≥ 50%; and the regression's `d_missense` coefficient is
+negative with its 95% bootstrap interval entirely below 0 while `d_transversion` is in the model.
+
+**Refuted if:** matched ≤ 55% **and** the `d_missense` interval includes 0 — then round 4's 68.9% was letter type,
+and Evo 2 is gene-aware (knows where the wobble position is) without evidence of being protein-aware. Anything in
+between is reported as "letter type explains part of it", with the regression coefficients as the split.
+
+### P26: the SE-peak claim does not survive a fair ranking
+
+**Test:** R5.3, round 4's own 120 sites rerun with every block kept, peaks picked three ways (`ratio` as round 4,
+`ratio_floor`, `diff`), compared with the same statistic on `fourfold` (no amino-acid change) and on round 4's sites
+through a fully weight-shuffled Evo 2 (`round4_shuffled`, 60 sites). Base rate: SE is 9 of 32 blocks (28%).
+
+**Prediction (the review's expectation, against round 4's finding 19):** under `diff`, SE's share of peaks on the
+round-4 sites falls below 60%; and SE's share on `fourfold` is within 20 points of its share on `round4`.
+
+**Refuted (finding 19's localisation survives) if:** under `diff` SE's share on `round4` stays ≥ 80%, **and** it is
+≤ 50% on `fourfold`, **and** ≤ 43% (base rate + 15) on `round4_shuffled`.
+
+### P27: premature stops are far more disruptive than missense, whatever the letter type
+
+**Test:** R5.4. `stop_matched` — stop transversion vs missense transversion (e.g. Cys TGT → TGA vs TGG).
+`stop_flipped` — stop *transition* vs missense transversion (e.g. Trp TGG → TGA vs TGT; Gln CAA → TAA vs AAA). No
+`usable` gate: every site enters the sign test.
+
+**Prediction:** the stop is more disruptive at ≥ 90% of `stop_matched` sites and ≥ 85% of `stop_flipped` sites.
+
+**Refuted if:** either is < 70%. **Untestable if** either design has fewer than 30 sites.
+
+### P28: block 0's selectivity is learned, measured without a cutoff
+
+**Test:** R5.5, `controls.best_word_share` for every live channel (dead channels removed, the round-3 open item):
+trained vs weight-shuffled (3 seeds) vs Gaussian (3 seeds), plus `cutoff_sweep` at 0.5–0.9.
+
+**Prediction:** the trained median best-word share exceeds the mean shuffled median by ≥ 0.20, and the trained model
+has more channels than every null at every cutoff from 0.5 to 0.9.
+
+**Refuted if:** the median gap is < 0.05, or any null has at least as many channels as the trained model at cutoff
+0.6 — then "block 0 is learned" is downgraded to "training sharpens a selectivity the architecture already has",
+and the 46-vs-0 contrast is reported as a cutoff effect.

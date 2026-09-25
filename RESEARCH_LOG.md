@@ -50,16 +50,19 @@ Follow one position of DNA through the 32 blocks:
 3. **Reading frame (MR layers).** The medium 128-letter layers carry the 3-letter codon rhythm inside genes. Remove
    them and accuracy becomes flat across codon positions. *(Finding 13; supersedes finding 8, which saw only
    single layers)*
-3b. **The genetic code (SE layers, mainly 7/11/14).** A missense change disturbs the model more than a silent one at
-   the same codon position in 68.9% of 119 sites, and 90.8% of those sites diverge most in an SE block. MR tracks
-   *where* the frame is; SE reads *what* the codon says. *(Finding 19)*
+3b. **The genetic code: under review.** Round 4 reported that a missense change disturbs the model more than a
+   silent one at the same codon position in 68.9% of 119 sites, peaking in SE blocks 7/11/14 (finding 19). The
+   2026-09-25 review found both halves confounded: the silent change was nearly always a transition and the missense
+   a transversion (on the 17 sites where both were transversions, missense won 8/17), and the SE peak came from the
+   argmax of a ratio. Round 5 (P25, P26) tests it properly. *(Findings 19, 23)*
 4. **Look-up and copy (attention, mainly L3; LI helps at long range).** Exact repeats are recognised at any distance,
    from 100 to 10,000 letters. Attention is essential; the LI layers (especially L2) help only at long range.
    Copying is its own circuit: it survives even when ordinary reading is broken (e.g. with L1 removed).
    *(Findings 1, 7, 13)*
-5. **Far context (attention).** 50,000 letters of upstream DNA help only slightly (0.016 nats per letter averaged
-   over 5 genes), and removing attention erases all of it on 5/5 genes while the model stays healthy. The fair LI
-   test is still untestable: its one informative condition broke. *(Findings 9, 17)*
+5. **Far context (unresolved).** 50,000 letters of upstream DNA help only slightly (0.016 nats per letter averaged
+   over 5 genes). Removing attention erases that, but so does removing SE, which reaches 7 letters and cannot be
+   the carrier: the test measures damage, not a pathway. Which operator carries far context, if any, is unknown.
+   *(Findings 9, 17, 24)*
 6. **What "long" LI layers really do.** Most LI filter channels reach only 4–7 letters; a few reach thousands. That's
    consistent with LI helping long-range copying without being the main long-range channel. L9 is load-bearing.
    *(Findings 3, 13)*
@@ -70,16 +73,20 @@ Follow one position of DNA through the 32 blocks:
    spread out or redundant. *(Finding 6)*
 
 **Confidence.**
-- Solid (causal, replicated across rounds, or exact from the weights): 4 (copying), 6 (LI reach), 7 (the funnel),
-  5 (far context via attention, 5/5 genes), 1 (block 0 — now with a random-weights null, finding 18).
+- Solid (causal, replicated across rounds, or exact from the weights): 4 (copying), 6 (LI reach), 7 (the funnel).
+- Likely, one check owed: 1 (block 0 is learned — the random-weights null gave 0 vs 46, but through a hard 80% cutoff;
+  P28 removes the cutoff).
+- Under review (2026-09-25): 3b (genetic code in SE — letter-type confound, P25/P26). Withdrawn: 5 (far context via
+  attention — its SE negative control failed, finding 24).
 - **Bit-identical replication (round 3b):** the whole round-3 result set reproduced exactly on a different A100 SKU
   and CUDA version, so 2, 3 and 8 are no longer "measured once" in the numerical sense — though replication of an
   arithmetic result is not the same as replication across genomes or checkpoints.
-- **Null model now run (round 4, finding 18):** block 0's bank is LEARNED. A weight-shuffled block 0 produces zero
-  detector channels for all 64 words on 3 seeds, against median 46 for the trained model. The flatness across words
-  is itself learned. Findings 4, 10, 15 and 16 stand, with the control the field keeps skipping.
+- **Null model now run (round 4, finding 18):** a weight-shuffled block 0 produces zero detector channels for all
+  64 words on 3 seeds, against median 46 for the trained model. Findings 4, 10, 15 and 16 stand, but the zero comes
+  through one hard cutoff, so "learned" waits on P28.
 
 **Not yet known:**
+- whether Evo 2 represents amino acids, or only knows where the wobble position is (P25);
 - whether the copying circuit is used on *less conserved* real repeats — round 4 answered only for 16S rRNA, which
   the model already predicts at 98.9% on first sight; IS2 and IS3 are the real test (round 5);
 - whether 16S's predictability is conservation, low entropy, or memorisation of this locus;
@@ -1050,6 +1057,259 @@ evidence on our side: a component-level result with real biological content that
 
 ---
 
+## 2026-09-25: A review of round 4, in plain language, and the design of round 5
+
+A second pair of eyes went through the round-4 branch: the code, the raw result files, and the papers cited. The
+code is sound (63 tests, then 83 with round 5's). Three of round 4's headline claims did not survive the review, and
+one round-3b claim that had been withdrawn in a working copy was reinstated by mistake. This entry explains each one
+from scratch, because the people evaluating this work include readers without a biology or machine-learning
+background. The formal record is in `PREDICTIONS.md` under "Round 4 review".
+
+### Five pieces of biology this entry needs
+
+1. **DNA is a string over four letters**, A, C, G and T. Evo 2 reads it one letter at a time and predicts the next.
+2. **A gene is read in three-letter words called codons.** Each codon stands for one **amino acid**; a chain of amino
+   acids folds into a protein. So a gene is like source code, each codon an instruction, the protein the compiled
+   program.
+3. **The code has duplicates.** There are 64 codons but only 20 amino acids plus "stop", so several codons mean the
+   same thing — usually differing only in the **third letter**. ATT, ATC and ATA all mean isoleucine. The third
+   letter is called the **wobble position** because it can often change without changing the meaning.
+4. **Three kinds of one-letter change inside a gene:**
+   - **silent** (synonymous): the amino acid stays the same. ATT → ATC. The protein is identical.
+   - **missense**: a different amino acid. ATT → ATG (isoleucine → methionine). The protein is altered.
+   - **nonsense**: the codon becomes "stop". TAT → TAA. The protein is cut short, usually fatally for its function.
+5. **Transitions and transversions.** The four letters come in two chemical families: **purines** (A, G — larger,
+   two rings) and **pyrimidines** (C, T — smaller, one ring). A **transition** swaps a letter for the other member
+   of its own family (A↔G or C↔T). A **transversion** swaps across families (A↔C, A↔T, G↔C, G↔T). Because of how DNA
+   gets damaged and copied, transitions happen roughly two to three times more often in real genomes, even though
+   there are twice as many possible transversions. A model trained on billions of letters will learn that
+   transitions are "normal" variation and transversions are "surprising" — whether or not it knows anything about
+   proteins.
+
+### Finding 23: round 4's amino-acid result is mostly a letter-type result (so far)
+
+Round 4 (P21) changed the third letter of the same codon two ways — silent and missense — and found the missense
+change disturbed the model more at 68.9% of 119 sites. That was read as "Evo 2 knows amino acids".
+
+The catch: the genetic code is built so that at the third letter, **silent changes are nearly always transitions and
+missense changes nearly always transversions**. TTT and TTC are both phenylalanine (T↔C, a transition); TTA is leucine
+(T→A, a transversion). So round 4's comparison was, in most cases, "transition vs transversion" wearing a biology
+label. Splitting `results/round4/results_round4.json` by letter type:
+
+| silent / missense letter type | sites | missense more disruptive | 95% interval |
+|---|---|---|---|
+| transition / transversion | 102 | **72.5%** | 63–80% |
+| transversion / transversion (all isoleucine) | 17 | **47.1%** (8 of 17) | 26–69% |
+| all (round 4's headline) | 119 | 68.9% | 60–77% |
+
+When both changes are the same letter type, the effect is at coin-flip level.
+
+**Why only 47% on those 17 — and why that does not prove the opposite either.** Three things are tangled together:
+- **17 sites is too few.** The 95% interval runs from 26% to 69%: it cannot rule out a real amino-acid effect of the
+  size round 4 claimed.
+- **The silent arm lands on a rare codon.** The only way to make a silent *transversion* at the third letter is
+  isoleucine ATT/ATC → **ATA**, and ATA is one of E. coli's rarest codons (about 7% of isoleucine codons). A rare
+  codon is itself surprising, which pushes the silent arm to look more disruptive than it "should".
+- **Isoleucine → methionine is one of the mildest amino-acid swaps**: both are oily (hydrophobic) and similar in
+  size. Even a model that fully understands proteins might barely care.
+
+So these 17 sites cannot say the model is blind to amino acids. They only say round 4's evidence does not show it
+isn't. No part of the repo had explored this before the review. The Evo 2 paper itself (Fig. 2) already showed that
+missense and stop changes lower Evo 2's likelihood more than silent ones across 36 species; its main text says
+mutations were "introduced at each position" and reports no letter-type or codon-usage control that we could find.
+
+**Gene-aware vs protein-aware.** Picture two spell-checkers. One has learned which letter slots in common words tend
+to vary (colour/color) and flags odd changes in the slots that never vary: it knows *where* words bend, not what
+they mean. The other knows that "cat → cot" changes the meaning and "colour → color" doesn't. Round 3 already showed
+Evo 2 is at least the first kind — **gene-aware**: its MR layers track the reading frame, so it knows which letter is
+the wobble position (finding 13). A gene-aware model that has learned "at the wobble position, transitions are
+normal" would produce round 4's 68.9% without knowing a single amino acid. Whether Evo 2 is also **protein-aware** is
+the open question round 5 is built to answer.
+
+### The SE-peak claim used a statistic that finds small denominators
+
+Round 4 also said that the missense/silent difference "peaks in SE blocks" (90.8% of sites; blocks 7, 11, 14). For
+each site it took, in each of the 32 blocks, the ratio *missense disturbance ÷ silent disturbance*, and reported the
+block with the largest ratio. A ratio explodes wherever the bottom number is tiny, and the maximum of 32 noisy ratios
+finds exactly those blocks. The warning sign is in the data: at the winning blocks the ratio was 5–7×, while the
+same comparison at the model's output is 1.32×. Round 4 saved only the winning block, not the 32 numbers behind it,
+so this cannot be re-checked from the results file; round 5 keeps every block. A hint that the statistic can mislead:
+on marv-hyena's own **untrained** tiny test model it puts 64% of peaks in SE blocks (base rate 25%) — and after
+shuffling that model's weights, 62% land in LI instead. The statistic follows the particular weights, not biology.
+
+### Block 0 "learned, 46 vs 0" went through a single cutoff
+
+Round 4's null model (finding 18) scrambled block 0's weights and found **zero** word detectors, against a median of
+46 per word in the trained model. The idea of the null is right and important (see Heap et al. below). But "detector"
+means "at least 80% of the channel's 50 strongest inputs contain the word". An exact zero across all 64 words and all
+3 seeds is what a cutoff produces when scrambled channels are *less* selective — for example, a random gated channel
+whose top inputs split between two unrelated patterns, one pushing it up and one down, never reaches 80% even though
+it responds sharply. Round 5 (P28) measures the selectivity itself, for every channel, and sweeps the cutoff.
+
+### Finding 24: far context does not go through attention — restoring the round-3b reading
+
+On 2026-09-23 two readings of the round-3b far-context rerun were written. One (in the round-4 branch, finding 17)
+said "attention carries far context: removing it erases the benefit on 5/5 genes". The other (in an uncommitted
+working copy, and in the published notebook page) said the test cannot tell. The data decide it
+(`results/round3b/results_round3b.json`, broken rows excluded):
+
+| removed | benefit of 50,000 vs 500 letters of context | per gene | health |
+|---|---|---|---|
+| nothing | +0.0160 | .017 .008 .016 .024 .016 | 0.696 |
+| attention | −0.0014 | all five between −0.003 and −0.001 | 0.571 |
+| **SE** | **+0.0030 (−81%)** | .000 .008 .002 .002 | 0.454 |
+| MR | −0.0056 (erased) | −.017 −.003 +.007 −.012 −.002 | 0.425 |
+| LI | +0.0268 (spread 0.038) | +.072 −.019 −.002 +.057 | 0.528 |
+
+SE looks back 7 letters. It cannot carry 50,000 letters of context by any mechanism anyone has proposed, yet
+removing it wiped out 81% of the benefit. It is a built-in **negative control**, and it failed: every removal damages
+the model (health 0.70 → 0.43–0.57) by far more than the 0.016-nat effect being measured, so the test measures
+*damage*, not a *pathway*. Finding 17's attention reading is withdrawn. What survives: LI is the only family whose
+removal leaves the benefit intact. A fair redesign needs health-matched ablations (damage unrelated parts until health
+matches attention's 0.571, then measure), genes with a larger native benefit, and the benefit scored relative to the
+model's own log-probability.
+
+*Lesson: a negative control only helps if someone acts on it when it fails. This one fired on the first run and was
+read past once, because the headline condition behaved exactly as hoped.*
+
+### A small fix: P20's −313%
+
+Round 4 reported that removing attention "keeps −313%" of the retrieval gain on the real 16S repeat. The gain being
+divided by was 0.028 nats — essentially nothing, because the model already predicts 16S rRNA at 98.9% on first
+sight. `genome.summarize_repeat_test` now refuses (returns NaN) when the baseline gain is under 0.1 nats. Same lesson
+as round 1's ±200% "fractions".
+
+### How the model is built, for the non-specialist
+
+Evo 2 is a *transformer-like* network in which most attention layers have been replaced by **convolutions**.
+
+- **Attention** compares every letter with every earlier letter. For a sequence of *n* letters that is about n²/2
+  comparisons: for 1,000,000 letters, half a trillion per layer, and a memory cache that grows with every letter.
+- **A convolution** slides a fixed pattern (a filter) along the sequence. A short filter of 7 letters costs 7
+  operations per letter; a filter as long as the whole sequence can be applied with the Fast Fourier Transform in
+  about n·log₂n operations — for a million letters roughly 20 million instead of half a trillion. The long (LI)
+  filters are also written as sums of decaying exponentials, which lets the model run them as a small running
+  summary during generation, with memory that does not grow. That is why StripedHyena 2 can read a million letters
+  at once, and why it keeps only 5 attention layers for the jobs that need exact look-up.
+
+Evo 2 7B has 32 blocks. Each block has a **mixer** (looks along the DNA) and an **MLP** (processes the current letter
+only), and each appends its output to a shared running total — the *residual stream*, "the log" in this project's
+analogy. After block 31, the total is turned into four probabilities for the next letter.
+
+```
+ 0 SE   1 MR   2 LI   3 ATTN
+ 4 SE   5 MR   6 LI   7 SE   8 MR   9 LI  10 ATTN
+11 SE  12 MR  13 LI  14 SE  15 MR  16 LI  17 ATTN
+18 SE  19 MR  20 LI  21 SE  22 MR  23 LI  24 ATTN
+25 SE  26 MR  27 LI  28 SE  29 MR  30 LI  31 ATTN
+```
+
+SE looks 4–7 letters back, MR about 128, LI the whole sequence (fading), attention anything exactly.
+
+**Is this like Titans?** Only in outline. Titans (Behrouz et al., arXiv 2501.00663) pairs attention (exact, short-term
+memory) with a neural long-term memory that **keeps learning while it reads**: it updates its own weights at test
+time, driven by how surprising each new token is. Evo 2 does **not** learn while reading. Its weights are frozen; the
+residual stream is recomputed from scratch on every input; error rates only shape the weights during training. The
+resemblance is the division of labour — attention for exact look-up, a compressed running summary (Hyena LI in Evo 2,
+the memory module in Titans) for the rest — which is also the split the text-hybrid paper arXiv 2609.04434 measured.
+
+### What the papers added (read 2026-09-25)
+
+| paper | what it found | what it means here |
+|---|---|---|
+| **Induction Meets Biology** (Pomerants et al., ICML 2026, arXiv 2602.23179) | Protein language models (ESM-3, ESM-C) detect repeats in two stages: position heads and "amino-acid similarity" neurons build aligned representations, then **induction heads** in the middle-to-late layers attend from one copy to the other and promote the next token. Found with attribution patching + integrated gradients. | The closest precedent to our copying result (finding 1), in proteins rather than DNA, and a template for the head-level search in L3. Also a contrast: integrated gradients *works* in their transformers, and fails in Evo 2 because of the block-30 funnel (finding 20) — which makes the funnel the reason, not the method. Not previously cited here. |
+| **The Mechanistic Invariance Test** (Cheng & Zhang, arXiv 2604.06549) | Five genomic models including **Evo2-1B**: apparent sensitivity to regulatory logic was driven by AT content (r = 0.78–0.96); composition effects beat positional ones 46-fold. | The same failure mode as P21: a letter-level property masquerading as biological understanding. Round 5 adds a G/C-change covariate for exactly this reason. |
+| **Heap et al.** (arXiv 2501.17727) | Sparse autoencoders trained on **randomly initialised** transformers get interpretability scores about as good as those on trained ones. | Why random-weights nulls (P19, P28) are not optional: "it looks interpretable" is not evidence of learning. |
+| **Position: beyond anecdotal evaluation** (Zhou et al., arXiv 2606.07607) | Genomic interpretability relies on cherry-picked examples; methods contradict each other and miss known motifs. Proposes tiered reporting. | Independent support for pre-registration and for shipping controls with every claim. |
+| **Decode-gLM** (Maiwald et al., bioRxiv 2025.10.31.685860) | SAE-based tools to interpret and audit Nucleotide Transformer; found training-data leakage. | The nearest existing "audit" tool — feature-based, not a controls battery. |
+| **Evo 2** (Brixi et al., Nature 2026) | Missense, stop and frameshift changes lower likelihood more than silent ones, 36 species. | P21/P22's *behaviour* is known; only the localisation would be new, and it needs the letter-type control. |
+| **Goodfire, Interpreting Evo 2** | SAEs on layer 26, chosen because it "had the most interesting biologically-relevant features". No codon or reading-frame features reported on the page. | Unchanged: nobody has published component-level causal work on Evo 2. |
+
+**Novelty after this re-read.** Searches found no operator-level causal analysis of Evo 2 or any StripedHyena model,
+and no report of the block-30 funnel. The wiring findings (attention copies; the funnel; LI filters are short;
+MR carries the frame; gradients fail at the funnel while ablation works) remain the strongest candidates. The two
+round-4 claims ranked first in the 2026-09-23 novelty list — the block-0 null and "SE applies the genetic code" —
+are the two with a control still owed, and should not lead until P25–P28 are in.
+
+### Round 5: designs that could explain round 4 away
+
+Built in `codons.paired_sites` / `design_sites` and `controls`, run by `notebooks/marv_hyena_round5_colab.ipynb`,
+pre-registered as P23–P28. Every design makes two changes **at the same position**, chosen by (kind, letter type),
+drawn from sites spread across the whole genome:
+
+| design | change a | change b | what it isolates |
+|---|---|---|---|
+| `round4` | silent (mostly transition) | missense (mostly transversion) | round 4's exact sites, every block kept |
+| `fourfold` | silent transition | silent transversion | letter type alone; protein unchanged (GCT → GCC vs GCA, all alanine) |
+| `noncoding` | transition | transversion | letter type alone, no gene at all |
+| `matched` | silent transversion | missense transversion | amino acid, letter type held fixed (Ile, Arg) |
+| `flipped` | silent transversion | missense transition | amino acid, letter type pushing the *other* way (Arg AGG → CGG vs GGG; Ile ATA → ATT vs ATG) |
+| `stop_matched` | stop, transversion | missense, transversion | stop vs amino-acid swap (Cys TGT → TGA vs TGG) |
+| `stop_flipped` | stop, transition | missense, transversion | stop vs swap, letter type against the stop (Trp TGG → TGA vs TGT) |
+| `round4_shuffled` | as `round4` | as `round4` | the SE-peak statistic on a weight-shuffled Evo 2 |
+
+Then one regression pools the paired designs: the within-site difference against *did the amino acid change*, *did
+the protein end*, *was it a transversion*, *did G/C content change* and *did the codon get rarer*, all at once.
+Because both changes share the site, everything else about the site cancels.
+
+How to read the outcome:
+- `fourfold` ≈ round 4's rate and `matched` ≈ 50% → round 4 measured letter type; Evo 2 is gene-aware, not shown to
+  be protein-aware.
+- `matched` well above 50% and `flipped` ≥ 50% → Evo 2 cares about the amino acid even when letter type is held fixed
+  or turned against it — the first result here that would be about biology rather than sequence statistics.
+- SE still winning under `diff` but not under `fourfold` or `round4_shuffled` → finding 19's localisation survives.
+
+Found while building it: isoleucine's rare codon ATA gives a second "flipped" site (ATA → ATT is a silent
+transversion, ATA → ATG a missense transition). The hand-written expectation in the new test said only arginine
+could; the test caught it.
+
+### Other models: what each would teach
+
+Not built yet; no adapter code exists. All numbers so far are **one checkpoint** (`evo2_7b`).
+
+| model | what it is | the question it answers |
+|---|---|---|
+| `evo2_7b_base`, `evo2_7b_262k` | the same model at other training stages / context lengths | Do the findings survive a second checkpoint? No new code: rerun the notebooks with `MODEL_NAME` changed. The cheapest and most important next step. |
+| **Evo2-1B** | smaller Evo 2 | The Mechanistic Invariance Test used it, so it would connect to that paper. Needs FP8, i.e. an H100; the A100s used so far cannot run it. |
+| **Evo 1** (`evo-1-8k-base`, `evo-1-131k-base`) | 7B, trained on microbes; attention only at blocks 8, 16, 24; every other block one kind of long Hyena filter | Is the funnel a quirk of Evo 2 or of this model family? Does copying still go only through the few attention layers? Cannot test SE vs MR vs LI (it has one filter type). Needs an adapter (different module layout). |
+| **StripedHyena-7B** | same family as Evo 1, trained on English text | Is the operator split DNA-specific or architectural? If text also copies through attention and has a funnel, we are describing the architecture; if not, we are describing what DNA training does. Shares Evo 1's adapter. |
+| **HyenaDNA** | tiny (0.4–6.6M parameters), **no attention at all**, trained on the human genome | Can a Hyena-only model copy repeated DNA at all, and where? If yes, attention in Evo 2 is *preferred*, not *necessary*. Runs on a laptop CPU; needs its own adapter (its filters come from a small network); use human DNA, not E. coli. |
+
+### Where this could go beyond the paper
+
+**A controls toolkit.** Most of what the review did was not new interpretability — it was running the checks that
+can explain a finding away: match the substitution types; compare against random weights; sweep the cutoff; refuse
+ratios over tiny denominators; check whether the statistic picks the maximum of noisy numbers; check the metric has
+room to move; replicate on a second checkpoint. `marv_hyena/controls.py` is the seed of that.
+
+- *Who it is for:* less the model makers (Arc, Goodfire) than the people making claims with these models — paper
+  authors, reviewers, and teams using Evo 2 scores to interpret patient variants or to design sequences, who need to
+  know a score reflects biology and not letter statistics.
+- *Is it Hyena-specific?* No. The substitution designs and statistics need only "score this sequence" — they apply
+  to Evo 2, Evo2-1B, Nucleotide Transformer, DNABERT-2, Caduceus, HyenaDNA, and with a different genetic-code layer,
+  protein models. Only the internals checks (per-block divergence, weight nulls) need model access, and any PyTorch
+  model allows that. The operator decompositions in this repo *are* Hyena-specific.
+- *What it would find:* the obvious first target is the Evo 2 paper's own silent-vs-missense figure — does it
+  survive letter-type matching across all 36 species? — and the same question for every genomic model at once. That
+  is a self-contained methods paper ("Do DNA language models know the genetic code? A matched-substitution audit").
+- *Honest size:* a real gap (the MIT paper, the position paper and Heap et al. all say so), but a niche. The
+  realistic form is an open-source library plus that paper; paid audit work only if teams deploying these models ask
+  for sign-off. It is closer to a reusable component — the way HNSW is an algorithm many vector databases embed —
+  than to a product: a matched-substitution generator plus a paired test is small enough to drop into anyone's
+  evaluation pipeline.
+
+**A venue.** The 2nd International Workshop on Trustworthy AI for Biomedical Discovery (IEEE BIBM 2026 workshops,
+online, 1–4 Dec) lists foundation models, evaluation and reproducibility, and interpretability among its topics.
+Submissions are due **27 September 2026**. What is ready for it today: the solid wiring findings, and three worked
+cases where a control reversed a conclusion inside this project (the SE negative control in round 3b, the
+letter-type split of P21, the ratio statistics). Round 5 would need to run on Colab within a day to be included.
+
+*Lesson from the review: a pre-registered prediction protects against moving the goalposts, not against measuring
+the wrong thing. P21 was registered, run and met — and measured letter type. Pre-registration needs a companion
+question: "what else would produce this number?"*
+
+---
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.
@@ -1075,4 +1335,15 @@ evidence on our side: a component-level result with real biological content that
 - **Load-bearing layer**: a single layer whose removal alone breaks the model (L0, L1, L9, L29, L30 in Evo 2 7B).
 - **Main effect vs. interaction**: a main effect is what one input position does *on average*; an interaction is an
   effect that only appears for a *combination* of positions (like a bug that needs two flags on at once).
-
+- **Transition / transversion**: a one-letter change within a chemical family (A↔G, C↔T) / across families. Transitions
+  are the common kind in real genomes.
+- **Purine / pyrimidine**: the two families of DNA letters: A and G (larger) / C and T (smaller).
+- **Silent (synonymous) / missense / nonsense**: a change that keeps the amino acid / swaps it / turns the codon into
+  "stop".
+- **Wobble position**: the third letter of a codon, which can often change without changing the amino acid.
+- **Gene-aware vs protein-aware**: knowing where codons and their wobble positions are, vs knowing what amino acid a
+  codon encodes.
+- **Negative control**: a condition that cannot produce the effect; if it does, the test is measuring something else.
+- **Null model**: the same analysis on a model with its learned structure destroyed (e.g. shuffled weights).
+- **Confound**: a second difference hiding behind the one you meant to test (letter type behind silent-vs-missense).
+- **Induction head**: an attention head that finds an earlier copy of the current text and predicts what came next.

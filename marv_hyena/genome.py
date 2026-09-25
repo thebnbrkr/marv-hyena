@@ -255,9 +255,12 @@ def run_repeat_test(hm: HyenaModel, probes: list[RepeatProbe], conditions: dict 
     return rows
 
 
-def summarize_repeat_test(rows: list[dict]) -> list[dict]:
+def summarize_repeat_test(rows: list[dict], min_gain: float = 0.1) -> list[dict]:
     """Mean retrieval gain per (condition, arm, gap), and how much of the
-    unablated gain each condition leaves standing."""
+    unablated gain each condition leaves standing.
+
+    `gain_kept` is NaN when the unablated gain is below `min_gain` nats: round 4
+    reported "-attn keeps -313%" of a 0.028-nat gain, a ratio over nothing."""
     import numpy as np
 
     key = lambda r: (r["condition"], r["arm"], r["gap"])  # noqa: E731
@@ -275,6 +278,6 @@ def summarize_repeat_test(rows: list[dict]) -> list[dict]:
             "first_lp": float(np.mean([x["first_lp"] for x in v])),
             "second_lp": float(np.mean([x["second_lp"] for x in v])),
             "retrieval_gain": gain,
-            "gain_kept": gain / b if b else float("nan"),
+            "gain_kept": gain / b if b is not None and abs(b) >= min_gain else float("nan"),
         })
     return out
