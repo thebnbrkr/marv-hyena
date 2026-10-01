@@ -153,8 +153,17 @@ pip install evo2                  # on Python 3.13 use: pip install --ignore-req
 pip install flash-attn==2.8.0.post2 --no-build-isolation   # optional; skipped automatically if absent
 # 2. this repo
 cd marv-hyena && pip install -e .
-python -m pytest -q          # 83 tests on a tiny CPU model, runs anywhere
+python -m pytest -q          # 100 tests on a tiny CPU model, runs anywhere
+
+# 3. before spending a GPU session, run the notebook's logic locally (no CUDA needed)
+python scripts/dry_run_notebook.py notebooks/marv_hyena_round6_colab.ipynb
+python scripts/dry_run_notebook.py notebooks/marv_hyena_scaling_20b_h100.ipynb --fake-gpu
 ```
+
+`dry_run_notebook.py` swaps the real checkpoint for `tests/tiny_hyena.py`'s stand-in and executes a
+notebook end to end on a laptop. Its numbers are meaningless, but it catches what actually breaks
+notebooks — typos, wrong column names, key collisions, missing variables — for free instead of one GPU
+session each. It needs `openpyxl` for the notebooks that read the BRCA1 spreadsheet.
 
 A100s have no FP8, so only the 7B checkpoints run (`evo2_7b`, `evo2_7b_262k`,
 `evo2_7b_base`, `evo2_7b_microviridae`). The Goodfire SAE was trained on
