@@ -55,11 +55,15 @@ Vortex computes something differently from what this code assumes.
 
 ## What we've found so far (Evo 2 7B)
 
-Short version, as of round 4. The reasoning, numbers and mistakes are in [`RESEARCH_LOG.md`](RESEARCH_LOG.md), and
+Short version, as of round 5. The reasoning, numbers and mistakes are in [`RESEARCH_LOG.md`](RESEARCH_LOG.md), and
 predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 
 - **One block decides.** Block 30's output is ~10⁵× larger than any other, so the prediction is a function of block
   30 alone. It's built into the weights (the same in float32), and block 31 has no effect.
+  The magnitude growth past layer 28 was reported first, with a mechanism, by
+  [Wei et al. 2025, App. C](https://arxiv.org/html/2510.27629v4) (no residual normalisation; gated input-dependent
+  convolutions). Ours is that *one* block's write is the whole residual, that block 31 is inert, that it survives
+  float32, and what it breaks for attribution.
 - **Attention does exact copying** at every distance. The LI layers help at long range (without them, copying at
   10,000 letters drops from 99.7% to 55.6%).
 - **The reading frame (codon rhythm) lives in the MR (medium) layers**, not the SE (short) ones.

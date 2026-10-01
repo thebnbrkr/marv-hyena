@@ -1412,6 +1412,63 @@ and scrambles one weight tensor at a time to find which one breaks it.
   *Before registering a statistic, run it on fake data where the answer is known; before trusting a null, check it
   still responds to its input.*
 
+## 2026-09-30: Prior art for the funnel, and where round 5 leaves the project
+
+### A paper that measured the magnitude growth first
+
+`arXiv:2510.27629` (Wei et al., v4 Nov 2025) is a biosecurity evaluation paper about how durable Evo 2's
+pre-training data filters are. Its subject is not interpretability, and nothing in its main results bears on this
+project. One part does: to explain a result of their own, they measured **Evo 2's per-layer representation
+magnitude** and reported the same explosion we call the funnel.
+
+| what they report | where | our matching number |
+|---|---|---|
+| Representation magnitude grows drastically **beyond layer 28** | Fig. 4b, App. C | writes 28 → 29 → 30: 10^4 → 10^6 → 10^12 (round 2) |
+| Two causes: **no normalisation of the residual stream** between blocks, and Hyena's **input-dependent gated** convolution multiplying two already-large tensors | App. C | consistent; we did not state a mechanism |
+| The final RMSNorm rescales before the logits, so output quality depends on **direction, not magnitude** | App. C | consistent with our float32 check |
+| Reproduced through the **Vortex** pipeline, so it is the architecture and not the inference path | App. C | we also use Vortex |
+| Layer-wise probe accuracy **collapses after layer 28** | Fig. 4a | independent corroboration: downstream-readable information dies exactly where our funnel starts |
+
+**What this costs us.** The novelty claim "nobody has reported Evo 2's late-layer magnitude explosion" is **wrong and
+is withdrawn**. It was reported, with a mechanism, in a paper we had not found. Our literature checks looked under
+interpretability and massive-activation keywords; this paper is filed under `cs.CR`, and the magnitude analysis is an
+appendix supporting an unrelated result. *Lesson: a measurement can have prior art in a field that has no reason to
+cite yours. Search by the phenomenon ("representation magnitude", "Evo 2 layer norm") as well as by your own framing.*
+
+**What survives, and is sharper for the overlap.** They measured *that* magnitudes grow. We measured what it does:
+- Block 30's write is not merely large, it is **the entire residual**: share 1.0000 of the final stream in every
+  region tested, so earlier writes are rounded away in bf16.
+- Block 31 is **inert**: removing it gives bit-identical logits.
+- The same in **float32**, and restoring every earlier write moves the output by ~0.0001%, so this is not a
+  precision artifact. Their appendix argues the model still works because direction survives normalisation; our
+  float32 check tests that the *decision* is block 30's alone, which is a different claim.
+- The consequence for method: **gradient attribution dies here** (one step out of 512 carries 97-100% of the
+  change), and removal-based attribution has to replace it. Their Fig. 4a shows the same wall from the outside, as a
+  probe collapse, without naming it a problem for attribution.
+- Everything operator-level — the load-bearing map, copying through attention, MR and the reading frame, SE and the
+  genetic code, the paired-substitution controls — has no counterpart in their work. They probe layers; they do not
+  ablate operators.
+
+So the honest framing changes from "we found the funnel" to **"the magnitude explosion is known; we show one block's
+write is the whole residual, that this is in the weights, and what it breaks."** README and the notebook page are
+updated to cite them.
+
+### Where round 5 leaves the project, in one place
+
+| claim | status after round 5 | strength |
+|---|---|---|
+| Attention does exact copying at every distance; LI helps at long range | holds, 3 runs | solid |
+| Block 30's write is the whole residual; block 31 inert; in the weights | holds, with prior art for the magnitude itself | solid, now shared |
+| Six load-bearing layers, one per Hyena family, none in attention | holds, 4 runs | solid |
+| MR carries the reading frame | holds, one fair test | measured once |
+| Gradients fail at the funnel; removal-based attribution reaches block 0 | holds | measured once |
+| A protein-changing substitution disturbs the model more than a silent one, with substitution type controlled and reversed | **new in round 5**: 72% and 80% of 150 sites | two amino acids only |
+| Substitution type alone, with no protein change, explains little | **new**: 54.7%, p = 0.29 | solid for four-fold sites |
+| The difference appears in SE blocks when the amino acid changes (85%) and not when it does not (11%) | **new**: round 4's claim survives a fair ranking | one weak leg (shuffled model is near-dead) |
+| A premature stop beats a missense change at the same site | **new**: 93% / 92% of 150 sites | behaviour known from the Evo 2 paper; the controlled version is ours |
+| Block 0's word bank is learned | **withdrawn**: the null was enumerated over 1-2-letter inputs | untested, round 5b pending |
+| Far context travels through a particular operator | withdrawn (round 3b) | untestable as designed |
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.
