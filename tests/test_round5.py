@@ -272,3 +272,61 @@ def test_repeat_gain_kept_is_nan_on_a_tiny_baseline():
     ]
     out = {r["condition"]: r for r in genome.summarize_repeat_test(rows)}
     assert out["-attn"]["gain_kept"] != out["-attn"]["gain_kept"]  # NaN, not -313%
+
+
+# ---------------------------------------------------------------- round-5 scoring
+def _summ(frac, n=150, p=0.001):
+    return {"b_more_disruptive_frac": frac, "n": n, "sign_test_p": p}
+
+
+def _score_inputs(**over):
+    summary = {"fourfold": _summ(0.65), "noncoding": _summ(0.58), "matched": _summ(0.52, p=0.7),
+               "flipped": _summ(0.40), "stop_matched": _summ(0.05), "stop_flipped": _summ(0.10)}
+    summary.update({k: v for k, v in over.items() if k in summary})
+    fit = over.get("fit", {"coef": {"d_missense": 0.1, "d_transversion": -1.0},
+                           "ci95": {"d_missense": (-0.5, 0.6), "d_transversion": (-1.5, -0.5)}})
+    se = over.get("se", {"round4": 0.55, "fourfold": 0.50, "round4_shuffled": 0.60})
+    peaks = [{"design": d, "method": "diff", "se share": v, "se base": 9 / 32} for d, v in se.items()]
+    peaks += [{"design": d, "method": "ratio", "se share": 0.99, "se base": 9 / 32} for d in se]
+    sw = lambda *v: dict(zip((0.5, 0.6, 0.7, 0.8, 0.9), v))
+    block0 = over.get("block0", {"trained": {"median": 0.9, "sweep": sw(100, 90, 80, 70, 60)},
+                                 "shuffle0": {"median": 0.5, "sweep": sw(50, 40, 30, 20, 10)},
+                                 "gaussian0": {"median": 0.4, "sweep": sw(40, 30, 20, 10, 5)}})
+    return summary, fit, peaks, block0
+
+
+def test_score_round5_letter_type_reading():
+    """The review's expected world: letter type explains round 4."""
+    s = controls.score_round5(*_score_inputs())
+    assert s["P23"]["verdict"] == "CONFIRMED"
+    assert s["P24"]["verdict"] == "CONFIRMED"
+    assert s["P25"]["verdict"] == "REFUTED"
+    assert s["P26"]["verdict"] == "CONFIRMED"      # only the diff rows count, not ratio's 0.99
+    assert s["P27"]["verdict"] == "CONFIRMED"      # stop is arm a: 1 - 0.05 = 95%, 1 - 0.10 = 90%
+    assert s["P28"]["verdict"] == "CONFIRMED"
+
+
+def test_score_round5_protein_aware_reading():
+    """The other world: round 4's reading survives every control."""
+    fit = {"coef": {"d_missense": -2.0, "d_transversion": -0.5},
+           "ci95": {"d_missense": (-3.0, -1.0), "d_transversion": (-1.0, 0.1)}}
+    s = controls.score_round5(*_score_inputs(
+        fourfold=_summ(0.50), noncoding=_summ(0.49), matched=_summ(0.72, p=1e-4), flipped=_summ(0.61),
+        fit=fit, se={"round4": 0.85, "fourfold": 0.30, "round4_shuffled": 0.35}))
+    assert s["P23"]["verdict"] == "REFUTED"
+    assert s["P24"]["verdict"] == "REFUTED"
+    assert s["P25"]["verdict"] == "CONFIRMED"
+    assert s["P26"]["verdict"] == "REFUTED"
+
+
+def test_score_round5_edges():
+    s = controls.score_round5(*_score_inputs(stop_flipped=_summ(0.2, n=12)))
+    assert s["P27"]["verdict"].startswith("UNTESTABLE")
+    s = controls.score_round5(*_score_inputs(stop_flipped=_summ(0.35)))   # stop wins only 65%
+    assert s["P27"]["verdict"] == "REFUTED"
+    s = controls.score_round5(*_score_inputs(matched=_summ(0.58, p=0.2)))
+    assert s["P25"]["verdict"].startswith("PARTLY")
+    sw = lambda *v: dict(zip(("0.5", "0.6", "0.7", "0.8", "0.9"), v))   # JSON round-trip turns keys into str
+    b0 = {"trained": {"median": 0.9, "sweep": sw(100, 90, 80, 70, 60)},
+          "shuffle0": {"median": 0.87, "sweep": sw(100, 95, 30, 20, 10)}}
+    assert controls.score_round5(*_score_inputs(block0=b0))["P28"]["verdict"] == "REFUTED"

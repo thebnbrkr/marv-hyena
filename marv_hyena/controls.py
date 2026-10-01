@@ -194,3 +194,75 @@ def cutoff_sweep(shares: np.ndarray, cutoffs=(0.5, 0.6, 0.7, 0.8, 0.9)) -> dict:
     """How many channels clear each cutoff. If the trained/null gap only exists
     at 0.8 and vanishes at 0.6, the 'zero detectors' result was the cutoff."""
     return {float(c): int((shares >= c).sum()) for c in cutoffs}
+
+
+# ------------------------------------------------------------------ round-5 scoring
+def _verdict(confirmed: bool, refuted: bool, between: str = "IN BETWEEN") -> str:
+    return "CONFIRMED" if confirmed else "REFUTED" if refuted else between
+
+
+def score_round5(summary: dict, fit: dict, peaks: list[dict], block0: dict) -> dict:
+    """Apply the thresholds registered for P23-P28 in PREDICTIONS.md, mechanically.
+
+    Inputs are the notebook's SUMMARY (summarize_paired per design), the
+    paired_regression result, the peak-share rows ({design, method, 'se share'})
+    and the block-0 dict ({name: {'median', 'sweep'}}). The output is a reading
+    aid, not the record: outcomes are written into PREDICTIONS.md by hand,
+    against the prediction text.
+    """
+    out = {}
+    frac = lambda d: summary[d]["b_more_disruptive_frac"]
+
+    ff, nc = frac("fourfold"), frac("noncoding")
+    out["P23"] = {"verdict": _verdict(ff >= 0.60, ff <= 0.55),
+                  "observed": f"fourfold transversion more disruptive {ff:.1%} (n={summary['fourfold']['n']})",
+                  "rule": "confirmed >= 60%; refuted <= 55%"}
+    out["P24"] = {"verdict": _verdict(nc >= 0.55 and nc < ff, nc <= 0.50 or nc > ff + 0.10),
+                  "observed": f"noncoding {nc:.1%} (n={summary['noncoding']['n']}) vs fourfold {ff:.1%}",
+                  "rule": "confirmed >= 55% and below fourfold; refuted <= 50% or > fourfold + 10 pts"}
+
+    m, fl = summary["matched"], summary["flipped"]
+    lo, hi = fit["ci95"].get("d_missense", (float("nan"), float("nan")))
+    has_tv = "d_transversion" in fit["coef"]
+    out["P25"] = {
+        "verdict": _verdict(m["b_more_disruptive_frac"] >= 0.60 and m["sign_test_p"] < 0.05
+                            and fl["b_more_disruptive_frac"] >= 0.50 and hi < 0 and has_tv,
+                            m["b_more_disruptive_frac"] <= 0.55 and lo <= 0 <= hi,
+                            "PARTLY (letter type explains part)"),
+        "observed": (f"matched {m['b_more_disruptive_frac']:.1%} (n={m['n']}, p={m['sign_test_p']:.3g}); "
+                     f"flipped {fl['b_more_disruptive_frac']:.1%} (n={fl['n']}); "
+                     f"d_missense 95% CI {lo:+.3f}..{hi:+.3f}; d_transversion in model: {has_tv}"),
+        "rule": "confirmed: matched >= 60% & p < .05, flipped >= 50%, d_missense CI < 0; "
+                "refuted: matched <= 55% and d_missense CI includes 0"}
+
+    se = {r["design"]: r["se share"] for r in peaks if r["method"] == "diff"}
+    r4, f4, sh = se["round4"], se["fourfold"], se["round4_shuffled"]
+    base = next(r.get("se base", 9 / 32) for r in peaks if r["design"] == "round4")
+    out["P26"] = {"verdict": _verdict(r4 < 0.60 and abs(f4 - r4) <= 0.20,
+                                      r4 >= 0.80 and f4 <= 0.50 and sh <= base + 0.15),
+                  "observed": f"SE share of diff-peaks: round4 {r4:.1%}, fourfold {f4:.1%}, shuffled {sh:.1%} "
+                              f"(SE base rate {base:.1%})",
+                  "rule": "confirmed: round4 < 60% and fourfold within 20 pts; "
+                          "refuted (finding 19 survives): round4 >= 80%, fourfold <= 50%, shuffled <= base + 15"}
+
+    sm, sf = summary["stop_matched"], summary["stop_flipped"]
+    # arm a is the stop, so "stop more disruptive" is 1 - b_more_disruptive_frac
+    s1, s2 = 1 - sm["b_more_disruptive_frac"], 1 - sf["b_more_disruptive_frac"]
+    untestable = min(sm["n"], sf["n"]) < 30
+    out["P27"] = {"verdict": "UNTESTABLE (< 30 sites)" if untestable else
+                  _verdict(s1 >= 0.90 and s2 >= 0.85, s1 < 0.70 or s2 < 0.70),
+                  "observed": f"stop more disruptive: matched {s1:.1%} (n={sm['n']}), flipped {s2:.1%} (n={sf['n']})",
+                  "rule": "confirmed: matched >= 90%, flipped >= 85%; refuted: either < 70%; untestable: n < 30"}
+
+    sweep = {k: {float(c): v for c, v in d["sweep"].items()} for k, d in block0.items()}
+    nulls = [k for k in block0 if k != "trained"]
+    shuf = [k for k in nulls if k.startswith("shuffle")]
+    gap = block0["trained"]["median"] - float(np.mean([block0[k]["median"] for k in shuf]))
+    beats_all = all(sweep["trained"][c] > sweep[k][c] for k in nulls for c in sweep["trained"])
+    tie_at_06 = any(sweep[k][0.6] >= sweep["trained"][0.6] for k in nulls)
+    out["P28"] = {"verdict": _verdict(gap >= 0.20 and beats_all, gap < 0.05 or tie_at_06),
+                  "observed": f"median gap {gap:+.3f}; trained beats every null at every cutoff: {beats_all}; "
+                              f"a null matches trained at 0.6: {tie_at_06}",
+                  "rule": "confirmed: gap >= 0.20 and beats every null everywhere; "
+                          "refuted: gap < 0.05 or any null >= trained at 0.6"}
+    return out
