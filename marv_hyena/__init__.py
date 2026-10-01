@@ -26,7 +26,7 @@ from .codons import (
     translation_test,
     wobble_sites,
 )
-from .controls import paired_regression, peak_kind_shares, score_round5, summarize_paired
+from .controls import paired_regression, peak_kind_shares, rarity_split, score_round5, summarize_paired
 from .genome import RepeatFamily, find_repeat_families, repeat_probes, run_repeat_test
 from .nullmodel import random_weights, verify_restored
 from .probes import CopyProbe, Track, codon_phase_accuracy, copy_probe, genbank_track, score_copy, truncation_curve

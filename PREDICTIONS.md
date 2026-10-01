@@ -888,3 +888,75 @@ fully scrambled model was "near-dead", citing small per-block divergences. That 
 just proved wrong here. The P26 divergences are relative rather than absolute, so the argument is not refuted by this
 result, but it is no longer trustworthy without its own check. **P26's shuffled leg is reopened**: it needs the
 `block0_sensitivity` treatment applied across blocks before the leg can be dismissed or accepted.
+
+---
+
+## Round 5 re-analysis (2026-09-30): three checks on the amino-acid result
+
+No new GPU run. All three are re-analyses of `results/round5/results_round5.json`, prompted by an outside review that
+asked whether the amino-acid result could be an amino-acid-composition effect, a codon-frequency effect, or a
+comparison between different populations of sites. Outcomes are recorded here because they change how P25 should be
+stated, not what it scored.
+
+### 1. Split by amino acid: the effect is graded by how drastic the swap is
+
+| design | amino acid | sites | missense more disruptive | exact sign test |
+|---|---|---|---|---|
+| `matched` | **Ile** (ATT/ATC → ATA vs ATG; Ile→Met) | 124 | **66.9%** | p = 2.0e-4 |
+| `matched` | **Arg** (CGA/CGG/AGG → …; Arg→Gly or Arg→Trp) | 26 | **96.2%** | p = 8.1e-7 |
+| `flipped` | **Ile** (ATA → ATT/ATC vs ATG) | 57 | 63.2% | p = 0.063 |
+| `flipped` | **Arg** | 93 | **90.3%** | p = 2.2e-16 |
+
+Isoleucine is **not** at chance: 66.9% with p = 2.0e-4 in `matched`, and 63.2% (p = 0.063, not significant) in
+`flipped`. Round 4's 8/17 at Ile was 17 sites; this is 124. Arginine is far stronger. Ile→Met is one of the mildest
+substitutions (both hydrophobic, similar size) and Arg→Gly / Arg→Trp are drastic, so the effect is **graded by
+severity** — the ordering a protein-aware model predicts and letter statistics do not.
+
+This also resolves the review's warning that `flipped` (80%) beats `matched` (72%) although letter type works against
+`flipped`. It is composition, not letter type: `flipped` is 62% arginine sites (93/150), `matched` only 17% (26/150).
+Within each amino acid, `matched` ≥ `flipped` as expected (Ile 66.9% vs 63.2%; Arg 96.2% vs 90.3%).
+
+### 2. Codon frequency works against the result at 266 of 300 sites
+
+`controls.rarity_split` splits paired rows by the sign of `d_usage` = log(usage[b] / usage[a]).
+
+| group | rarity favours the hypothesis | rarity opposes it |
+|---|---|---|
+| `matched` Ile | 0 sites | 124 — 66.9%, p = 2.0e-4 |
+| `matched` Arg | 0 | 26 — 96.2%, p = 8.1e-7 |
+| `flipped` Arg | 0 | 93 — 90.3%, p = 2.2e-16 |
+| `flipped` Ile, ATA → ATT | **34 — 76.5%, p = 2.9e-3** | 0 |
+| `flipped` Ile, ATA → ATC | 0 | 23 — 43.5%, p = 0.68 |
+
+In **266 of 300** paired sites the *silent* arm lands on the rarer codon, so codon rarity pushes against "the
+protein-changing arm disturbs more". Restricted to those 266 sites the result is **75.9%, p = 7.7e-18**. The confound
+exists in exactly one subgroup of 34 sites (`flipped` Ile ATA → ATT), and that subgroup is the one the review
+identified. Removing it does not weaken the result; it strengthens it.
+
+### 3. The letter-type baseline is the same population-independent
+
+The review asked whether `fourfold`'s 54.7% came from a different set of amino acids than the Ile/Arg designs. It is
+sampled across 9 amino acids (A, G, I, L, P, R, S, T, V). Restricted to the two the matched designs use:
+
+| | sites | transversion more disruptive | p |
+|---|---|---|---|
+| all `fourfold` | 150 | 54.7% | 0.29 |
+| Ile + Arg only | 27 | 55.6% | 0.70 |
+| Arg only | 18 | 61.1% | 0.48 |
+| Ile only | 9 | 44.4% | 1.00 |
+
+The restricted baseline (55.6%) matches the full one (54.7%), so the comparison was not across populations.
+
+### 4. P26's base rate and null, verified
+
+The peak is taken over **32 blocks**, one per block rather than one per write, so SE's chance level is 9/32 = 28.1%
+(attention 5/32 = 15.6%). Confirmed from the stored `kinds` vector, which has 32 entries. The weight-shuffled null
+**was** run, on 60 sites, and is the leg reopened by round 5b.
+
+### How P25 should now be stated
+
+Unchanged as a score (in between, by its own rule). Stated for use: *at isoleucine and arginine sites in E. coli, in
+one checkpoint, a substitution that changes the amino acid disturbs Evo 2 more than a silent substitution at the same
+position — with substitution type held equal (72.0%, n = 150) or set against it (80.0%, n = 150), with codon frequency
+working against the result at 266 of 300 sites (75.9% there, p = 7.7e-18), and graded by how drastic the substitution
+is (Ile→Met 66.9%, Arg→Gly/Trp 96.2%).* `fourfold` sites, where no amino acid changes, give 54.7% (p = 0.29).

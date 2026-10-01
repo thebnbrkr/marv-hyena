@@ -271,3 +271,23 @@ def score_round5(summary: dict, fit: dict, peaks: list[dict], block0: dict) -> d
                   "rule": "confirmed: gap >= 0.20 and beats every null everywhere; "
                           "refuted: gap < 0.05 or any null >= trained at 0.6"}
     return out
+
+
+def rarity_split(rows: list[dict]) -> dict:
+    """Split paired rows by whether codon rarity pushes with or against the
+    hypothesis that arm b (the one that changes the protein) disturbs more.
+
+    `d_usage` is log(usage[b_codon] / usage[a_codon]), so:
+      d_usage < 0  arm b lands on the rarer codon -> rarity FAVOURS the hypothesis
+      d_usage > 0  arm a lands on the rarer codon -> rarity OPPOSES it
+      d_usage == 0 neither (no usage table, or equal frequencies)
+
+    A result that holds on the 'opposes' half is not a codon-frequency artifact.
+    Round 5's `flipped` design at isoleucine ATA is the one place where rarity
+    favours the hypothesis, because ATA is rare and the silent arm leaves it.
+    """
+    groups = {"favours": [], "opposes": [], "neutral": []}
+    for r in rows:
+        d = r.get("d_usage", 0.0)
+        groups["favours" if d < 0 else "opposes" if d > 0 else "neutral"].append(r)
+    return {k: summarize_paired(v) for k, v in groups.items() if v}

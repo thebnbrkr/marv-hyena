@@ -363,3 +363,20 @@ def test_block0_sensitivity_sees_the_receptive_field(hm):
     assert all(r > 0.05 for r in s["reach"][:k])
     assert all(r < 1e-5 for r in s["reach"][k:])
     assert all(u == 0.0 for u in s["unchanged"][:k])
+
+
+def test_rarity_split_separates_the_confound():
+    """A codon-frequency confound lives in d_usage's sign: negative means the
+    protein-changing arm is the rarer codon, which would favour the hypothesis
+    for free."""
+    def row(d_usage, b_wins):
+        return {"effect_a": 0.0, "effect_b": -1.0 if b_wins else 1.0, "d_usage": d_usage,
+                "design": "x", "a_label": "a", "b_label": "b"}
+    rows = ([row(-1.0, True)] * 3 + [row(-1.0, False)] * 1          # favours: 3/4
+            + [row(+1.0, True)] * 8 + [row(+1.0, False)] * 2        # opposes: 8/10
+            + [row(0.0, True)])                                     # neutral: 1/1
+    out = controls.rarity_split(rows)
+    assert out["favours"]["n"] == 4 and out["favours"]["b_more_disruptive_frac"] == 0.75
+    assert out["opposes"]["n"] == 10 and out["opposes"]["b_more_disruptive_frac"] == 0.8
+    assert out["neutral"]["n"] == 1
+    assert controls.rarity_split([])== {}

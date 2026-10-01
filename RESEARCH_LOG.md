@@ -1543,6 +1543,96 @@ equivalent of `nullmodel.block0_sensitivity` has to be run on the fully scramble
 measure the null itself before believing the comparison. "Scrambled" is not a state we observed; it is a state we
 assumed. Round 5b's whole contribution is one function that looks at it.*
 
+## 2026-09-30: An outside review of the claim list, and three checks that strengthen the biology
+
+Two review notes arrived on the claim list written for the Leuven abstract. Both are worth recording: between them they
+caught two factual errors in how the claims were being stated, named prior work for three of them, and asked three
+questions about the amino-acid result that turned out to be answerable from the existing result files. No new GPU run.
+
+### Two errors in the claim list (not in the repo)
+
+- **"Six load-bearing layers, one per Hyena family" is wrong: it is two per family.** L0 and L4 are SE, L1 and L29 are
+  MR, L9 and L30 are LI. The repo's own wording ("every Hyena family contains a load-bearing layer, attention contains
+  none") was always correct and is unchanged; the "one per family" slip was introduced in the summary written for the
+  abstract and in version 8 of the notebook page, and is corrected there.
+- **The health numbers were mixed across rounds.** "Baseline 0.696, broken 0.225–0.345, all others 0.70–0.86" takes the
+  broken range from round 3 and the healthy range from round 2, whose baseline was 0.859. Round 3's own numbers:
+  baseline **0.696**, the six broken layers **0.225–0.345**, the other 26 **0.568–0.696**.
+- A third point in the review — that the LI reach claim misquotes the architecture paper as saying "thousands of
+  nucleotides" — applies to the summary, not the repo. The paper says LI aggregates over the entire sequence; the
+  "thousands of nucleotides" phrasing is a popular explainer's, and this log has always cited it as such.
+
+### Prior work named for three claims
+
+- **Copying through attention** has a direct precedent in trained text hybrids: ablating attention in RecurrentGemma
+  and Jamba drops retrieval to zero, with no compensation from the recurrent layers. Our claim is an extension to DNA
+  and to Hyena, which the log already said in general terms; now there is a specific result to cite. Two further
+  papers (on where pretrained hybrids put the aggregation step, and on short convolutions carrying associative recall)
+  were named through another paper's related-work section, so they need reading before citation.
+- **LI filters decaying in finite time** is expected from Laughing Hyena Distillery. Our measurement is a confirmation
+  in Evo 2, not a surprise, and should be presented that way.
+- **"Load-bearing layers" is taken, in this exact subfield.** An ICML 2026 paper (Cho, Kim and Kim) studies NT-v2 and
+  **Evo 2 7B**, finds a "load-bearing" layer by leave-one-layer-out ablation, and reports it deep in the hybrid. The
+  method differs from ours — they ablate layers of a *classifier built on hidden states* for ClinVar variants, not the
+  model's own forward pass, and they never touch operators — but the term collides and the conclusion overlaps. Either
+  rename our concept or distinguish it explicitly. The specific layer numbers attributed to that paper came from a
+  third-party summary, so they need checking in the paper itself, along with whether its layer numbering is 0- or
+  1-based. A tempting follow-up — that our funnel explains their deep layer, since their feature is a norm and late
+  norms explode — should **not** be claimed: if they standardise features per layer, magnitude washes out.
+
+### Three checks on the amino-acid result, all answered in our favour
+
+The review asked whether P25's 72% and 80% could be (1) carried entirely by arginine, with isoleucine at chance, (2) a
+codon-frequency effect, or (3) a comparison between different populations of sites. Full numbers are in
+`PREDICTIONS.md` under "Round 5 re-analysis". In short:
+
+**1. The effect is graded by how drastic the substitution is, and isoleucine is not at chance.**
+
+| | sites | protein-changing arm wins | p |
+|---|---|---|---|
+| matched, Ile→Met (a mild swap) | 124 | 66.9% | 2.0e-4 |
+| matched, Arg→Gly / Arg→Trp (drastic) | 26 | 96.2% | 8.1e-7 |
+| flipped, Ile | 57 | 63.2% | 0.063 |
+| flipped, Arg | 93 | 90.3% | 2.2e-16 |
+
+Round 4's worrying 8-of-17 at isoleucine was 17 sites; with 124 it is 66.9% and clearly above chance. The severity
+ordering — mild swap two-thirds, drastic swap almost always — is what a protein-aware model predicts and what letter
+statistics do not. It also explains the oddity the review flagged, that `flipped` (80%) beat `matched` (72%) even
+though letter type works against `flipped`: `flipped` is 62% arginine sites and `matched` only 17%. Within each amino
+acid, `matched` is the stronger design, as it should be.
+
+**2. Codon frequency works against the result almost everywhere.** In **266 of 300** paired sites the *silent* arm is
+the one landing on the rarer codon, so rarity pushes against our hypothesis for free. Restricted to those sites the
+result is **75.9%, p = 7.7e-18**. The one subgroup where rarity helps is `flipped` isoleucine ATA → ATT, 34 sites — and
+it is the subgroup the review predicted from the genetic code alone, without seeing the data. Dropping it strengthens
+the result rather than weakening it. `controls.rarity_split` now ships this split, with a test.
+
+**3. The letter-type baseline is not a different population.** `fourfold` samples 9 amino acids; restricted to the two
+the matched designs use, it gives 55.6% (n = 27) against 54.7% for all 150. Same answer.
+
+Also verified: P26's chance level of 28.1% is correct, because the peak is taken over 32 blocks rather than 64 writes
+(the stored `kinds` vector has 32 entries), and the weight-shuffled null was run on 60 sites — the leg round 5b
+reopened.
+
+### What the reviews leave as the strongest material
+
+Both notes independently landed on the same two things, which is worth recording because it is not what we would have
+guessed at the start:
+
+1. **SE layers carry the amino-acid signal** (85% of sites when the amino acid changes, 11% when it does not). Neither
+   review found prior work localising amino-acid sensitivity to operator types in any model. This is also the result
+   most exposed by round 5b, since its weight-shuffled leg is reopened.
+2. **LI's long-range contribution to copying** is a genuine difference from the text hybrids, where the recurrent
+   layers contributed nothing to retrieval. We had been treating it as a detail of claim 1; it is the part that is not
+   an extension of someone else's result.
+
+Taken together the operator map is the contribution, more than any single row of it: SE reads local codon meaning and
+does no recall, which contradicts the architecture paper's "local multi-token recall"; MR carries the reading frame;
+attention does the copying with LI assisting at long range, unlike text hybrids; block 30 is the readout.
+
+*Neither review was systematic — about eight targeted searches each. They caught the obvious collisions, which is
+exactly the failure mode this project keeps hitting, and they cost nothing compared with the runs they protect.*
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.
