@@ -129,6 +129,8 @@ Caveats we hold ourselves to:
   Needs no new data — E. coli and the GenBank annotations already in the repo.
 - **Round 5** (controls that could explain round 4 away): `notebooks/marv_hyena_round5_colab.ipynb`. Results in
   `results/round5/`.
+- **Round 6** (replication and statistics; replicate unit and statistic pre-registered as P30–P35):
+  [`notebooks/marv_hyena_round6_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round6_colab.ipynb).
 - **Round 5b** (block 0's null model, done properly):
   [`notebooks/marv_hyena_round5b_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round5b_colab.ipynb).
 

@@ -380,3 +380,62 @@ def test_rarity_split_separates_the_confound():
     assert out["opposes"]["n"] == 10 and out["opposes"]["b_more_disruptive_frac"] == 0.8
     assert out["neutral"]["n"] == 1
     assert controls.rarity_split([])== {}
+
+
+# ---------------------------------------------------------------- replicate-aware statistics
+def test_holm_adjusts_and_stays_monotone():
+    p = {"a": 0.001, "b": 0.04, "c": 0.5}
+    adj = controls.holm(p)
+    assert adj["a"] == pytest.approx(0.003)      # 3 * 0.001
+    assert adj["b"] == pytest.approx(0.08)       # 2 * 0.04
+    assert adj["c"] == pytest.approx(0.5)
+    assert adj["a"] <= adj["b"] <= adj["c"]      # monotone by construction
+    assert controls.holm({"only": 0.02})["only"] == pytest.approx(0.02)
+
+
+def test_cluster_bootstrap_widens_when_sites_share_a_cluster():
+    """The replicate unit matters: 40 sites in 2 genes carry far less
+    information than 40 sites in 40 genes, and the interval must say so."""
+    rows = [{"effect_a": 0.0, "effect_b": -1.0, "gene": f"g{i}"} for i in range(30)]
+    rows += [{"effect_a": 0.0, "effect_b": 1.0, "gene": f"g{i}"} for i in range(30, 40)]
+    spread = controls.cluster_bootstrap(rows, lambda r: r["gene"], n_boot=2000)
+    clumped = controls.cluster_bootstrap(rows, lambda r: r["gene"][:2], n_boot=2000)
+    assert spread["n_clusters"] == 40 and clumped["n_clusters"] < 40
+    assert spread["estimate"] == clumped["estimate"] == pytest.approx(0.75)
+    width = lambda d: d["ci95"][1] - d["ci95"][0]
+    assert width(clumped) > width(spread)
+
+
+def test_paired_effect_size_reports_magnitude_not_just_sign():
+    rows = [{"effect_a": 0.0, "effect_b": -2.0} for _ in range(20)]
+    es = controls.paired_effect_size(rows, n_boot=1000)
+    assert es["median_diff_nats"] == pytest.approx(-2.0)
+    assert es["ci95"][0] <= -2.0 <= es["ci95"][1]
+    assert controls.paired_effect_size([]) == {"n": 0}
+
+
+def test_copy_test_sites_crosses_inserts_and_offsets(hm):
+    """Round 6's replicate unit: inserts and insertion sites must vary
+    independently, so a bootstrap can resample either."""
+    from marv_hyena import experiments
+    g = _rand_dna(4000, 7)
+    rows = experiments.copy_test(hm, g, gaps=(50,), insert_len=40, seeds=3, sites=2,
+                                 lead=100, conditions={"none": []}, verbose=False)
+    assert len(rows) == 3 * 2
+    assert {r["insert_seed"] for r in rows} == {0, 1, 2}
+    assert len({r["site_offset"] for r in rows}) == 2
+    # each insert is seen at each site exactly once
+    assert len({(r["insert_seed"], r["site_seed"]) for r in rows}) == 6
+    legacy = experiments.copy_test(hm, g, gaps=(50,), insert_len=40, seeds=3,
+                                   lead=100, conditions={"none": []}, verbose=False)
+    assert len(legacy) == 3 and {r["site_seed"] for r in legacy} == {0, 1, 2}
+
+
+def test_score_copy_refuses_an_insert_shorter_than_skip():
+    """A 20-letter insert with the default skip=20 scored nothing and divided by
+    zero; it now says so."""
+    import torch
+    from marv_hyena import probes
+    probe = probes.CopyProbe("A" * 200, (0, 20), (100, 120), 80)
+    with pytest.raises(ValueError, match="not longer than skip"):
+        probes.score_copy(torch.zeros(1, 200, 8), torch.zeros(1, 200, dtype=torch.long), probe)

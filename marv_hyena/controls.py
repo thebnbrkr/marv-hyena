@@ -291,3 +291,77 @@ def rarity_split(rows: list[dict]) -> dict:
         d = r.get("d_usage", 0.0)
         groups["favours" if d < 0 else "opposes" if d > 0 else "neutral"].append(r)
     return {k: summarize_paired(v) for k, v in groups.items() if v}
+
+
+# ------------------------------------------------------------------ replicate-aware statistics
+def holm(pvalues: dict[str, float]) -> dict[str, float]:
+    """Holm-Bonferroni adjusted p-values, family-wise. Round 5 reported seven
+    designs' sign tests uncorrected; with seven tests at 0.05 the chance of one
+    false positive is about 30%."""
+    items = sorted(pvalues.items(), key=lambda kv: kv[1])
+    m, out, running = len(items), {}, 0.0
+    for i, (k, p) in enumerate(items):
+        running = max(running, min(1.0, (m - i) * p))
+        out[k] = running
+    return out
+
+
+def cluster_bootstrap(rows: list[dict], cluster_key, stat=None, n_boot: int = 10000,
+                      seed: int = 0) -> dict:
+    """Bootstrap a paired statistic by resampling CLUSTERS, not rows.
+
+    The replicate unit is what you resample. Resampling sites treats two sites
+    in one gene as independent; resampling genes does not. `cluster_key(row)`
+    returns the cluster id (a gene, a sequence family, an insert). `stat` maps a
+    list of rows to a number, and defaults to the share of sites where arm b is
+    more disruptive.
+
+    Returns the point estimate, the percentile interval, and both counts, so a
+    reader can see how much clustering there was.
+    """
+    if not rows:
+        return {"n": 0}
+    if stat is None:
+        def stat(rs):
+            return float(np.mean([r["effect_b"] < r["effect_a"] for r in rs]))
+    groups: dict = {}
+    for r in rows:
+        groups.setdefault(cluster_key(r), []).append(r)
+    keys = list(groups)
+    rng = np.random.default_rng(seed)
+    draws = []
+    for _ in range(n_boot):
+        pick = rng.integers(0, len(keys), len(keys))
+        sample = [r for i in pick for r in groups[keys[i]]]
+        draws.append(stat(sample))
+    lo, hi = np.percentile(draws, [2.5, 97.5])
+    return {"n_rows": len(rows), "n_clusters": len(keys),
+            "estimate": stat(rows), "ci95": (float(lo), float(hi)),
+            "boot_sd": float(np.std(draws, ddof=1))}
+
+
+def paired_effect_size(rows: list[dict], n_boot: int = 10000, seed: int = 0,
+                       cluster_key=None) -> dict:
+    """Median within-site difference (effect_b - effect_a) in nats, with a
+    bootstrap interval. A sign test says whether b wins more often; this says by
+    how much, which is what a reader needs beside it. Negative = arm b is more
+    disruptive. `cluster_key` resamples clusters instead of rows."""
+    if not rows:
+        return {"n": 0}
+    d = np.array([r["effect_b"] - r["effect_a"] for r in rows], float)
+    rng = np.random.default_rng(seed)
+    if cluster_key is None:
+        draws = [float(np.median(rng.choice(d, len(d), replace=True))) for _ in range(n_boot)]
+    else:
+        groups: dict = {}
+        for r, x in zip(rows, d):
+            groups.setdefault(cluster_key(r), []).append(x)
+        keys = list(groups)
+        draws = []
+        for _ in range(n_boot):
+            pick = rng.integers(0, len(keys), len(keys))
+            draws.append(float(np.median([x for i in pick for x in groups[keys[i]]])))
+    lo, hi = np.percentile(draws, [2.5, 97.5])
+    return {"n": len(d), "median_diff_nats": float(np.median(d)),
+            "ci95": (float(lo), float(hi)),
+            "n_clusters": None if cluster_key is None else len(keys)}

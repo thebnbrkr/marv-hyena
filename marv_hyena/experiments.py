@@ -58,24 +58,40 @@ def _health(hm, health_seq, comps):
 
 def copy_test(hm: HyenaModel, genome: str, gaps=(100, 1000, 10000), insert_len: int = 200, seeds: int = 3,
               per_block_kinds=(), lead: int = 1000, conditions: dict | None = None,
-              health_seq: str | None = None, verbose: bool = True) -> list[dict]:
+              health_seq: str | None = None, verbose: bool = True,
+              sites: int | None = None) -> list[dict]:
     """P1. Score both copies of a repeated random insert under each condition.
-    Means for mean-ablation come from the probe sequence itself."""
+    Means for mean-ablation come from the probe sequence itself.
+
+    `sites=None` (the default, and what rounds 1-3 ran) draws the insertion
+    offset from the same seed as the insert, so one seed is one (insert, site)
+    pair. `sites=k` instead crosses `seeds` inserts with `k` independent
+    genomic offsets, giving seeds*k replicates per gap and letting a bootstrap
+    resample inserts and sites separately -- the replicate unit has to be
+    chosen before the run, not after (round 6).
+    """
     conds = _default_conditions(hm, conditions, per_block_kinds)
     hrows = {name: _health(hm, health_seq, comps) for name, comps in conds.items()}
     rows = []
     for gap in gaps:
-        for seed in range(seeds):
-            rng = random.Random(seed)
-            need = lead + gap + 50
-            off = rng.randrange(0, len(genome) - need)
-            probe = copy_probe(genome[off:off + need], insert_len=insert_len, gap=gap, lead=lead, seed=seed)
+        need = lead + gap + 50
+        if sites is None:
+            offsets = [(i, random.Random(i).randrange(0, len(genome) - need)) for i in range(seeds)]
+            pairs = [(i, i, off) for i, off in offsets]
+        else:
+            offsets = [(j, random.Random(10_000 + j).randrange(0, len(genome) - need)) for j in range(sites)]
+            pairs = [(i, j, off) for i in range(seeds) for j, off in offsets]
+        for insert_seed, site_seed, off in pairs:
+            probe = copy_probe(genome[off:off + need], insert_len=insert_len, gap=gap,
+                               lead=lead, seed=insert_seed)
             ids = hm.ids(probe.seq)
             for name, comps in conds.items():
                 s = _run(hm, ids, comps, lambda: score_copy(hm.logits(ids), ids, probe))
-                rows.append({"gap": gap, "seed": seed, "condition": name, **s, **hrows[name]})
+                rows.append({"gap": gap, "seed": insert_seed, "insert_seed": insert_seed,
+                             "site_seed": site_seed, "site_offset": off,
+                             "condition": name, **s, **hrows[name]})
             if verbose:
-                print(f"copy test: gap={gap} seed={seed} done")
+                print(f"copy test: gap={gap} insert={insert_seed} site={site_seed} done")
     return rows
 
 

@@ -1017,3 +1017,143 @@ P26's score is unchanged. Its reading is narrowed: "the missense-vs-silent diffe
 far more than a size-matched difference outside genes (89% vs 51%, chance 28%)". The word *carry* should not be used
 until SE writes are ablated or patched on these pairs; `peak_blocks` is descriptive, not causal. Still open from
 round 5b: the weight-shuffled leg.
+
+---
+
+## Round 5 statistics, added 2026-10-01 (re-analysis, no new run)
+
+Prompted by a review asking for replicate-aware statistics. Three things were missing from round 5's
+reporting: the replicate unit was never named, the seven designs' p-values were uncorrected, and effect
+sizes were not reported beside the sign tests. All three are recoverable from
+`results/round5/results_round5.json`. Sites were mapped to genes by parsing the GenBank CDS features.
+
+**Clustering is not a problem for round 5.** The designs draw sites with `min_spacing=300`, which put
+almost one site per gene: 142–147 distinct genes per 150 sites. A gene-level (cluster) bootstrap is
+therefore almost identical to the site-level interval:
+
+| design | sites | distinct genes | site-level 95% CI | **gene-level 95% CI** | median paired difference (nats), gene-bootstrap CI |
+|---|---|---|---|---|---|
+| `round4` | 120 | **15** | 0.60–0.77 | 0.602–0.757 | −0.488 (−0.807, −0.219) |
+| `matched` | 150 | 142 | 0.64–0.79 | 0.649–0.788 | −0.640 (−0.817, −0.398) |
+| `flipped` | 150 | 143 | 0.73–0.86 | 0.735–0.861 | −2.722 (−3.689, −1.578) |
+| `fourfold` | 150 | 147 | 0.47–0.62 | 0.468–0.624 | **−0.102 (−0.203, +0.058)** |
+| `noncoding` | 150 | 133 (5 kb bins) | 0.53–0.68 | 0.524–0.683 | −0.372 (−0.646, −0.050) |
+| `stop_matched` | 150 | 146 | 0.04–0.12 | 0.032–0.108 | +17.135 (+14.008, +20.396) |
+| `stop_flipped` | 150 | 142 | 0.05–0.13 | 0.040–0.126 | +11.611 (+9.630, +14.544) |
+
+**Round 4's sites are the clustered ones**, in only 15 genes, because they came from a single 60 kb
+window. Round 5's whole-genome sampling fixed that without anyone noticing it was a fix.
+
+**Holm correction across the seven designs** changes no conclusion:
+
+| design | raw p | Holm-adjusted p |
+|---|---|---|
+| `flipped` | 6.0e-14 | 3.0e-13 |
+| `stop_matched` | 1.8e-30 | 1.2e-29 |
+| `stop_flipped` | 2.6e-28 | 1.6e-27 |
+| `matched` | 6.9e-8 | **2.8e-7** |
+| `round4` | 3.2e-5 | 9.7e-5 |
+| `noncoding` | 0.0111 | **0.0222** |
+| `fourfold` | 0.288 | 0.288 (not significant) |
+
+**The best statement of the four-fold result is its effect size, not its p-value.** The median paired
+difference is −0.102 nats with a gene-level interval of (−0.203, **+0.058**) — the interval **includes
+zero**. "Substitution type alone moves the model by an amount indistinguishable from zero" is both
+stronger and more honest than "p = 0.29".
+
+New in `controls`: `holm`, `cluster_bootstrap`, `paired_effect_size`. All tested.
+
+---
+
+## Round 6 predictions (registered 2026-10-01, before running `notebooks/marv_hyena_round6_colab.ipynb`)
+
+Round 6 is replication, not new ground: it re-runs the claims that rest on a single measurement, with
+the **replicate unit, sample size and statistic fixed here, before the run**. That ordering is the
+point — round 5's P25 registered a statistic that turned out not to be computable from its design.
+
+Conventions for every prediction below. A **replicate** is a different sequence, never a rerun of the
+same input. Intervals are 95% percentile bootstrap over the named replicate unit, 10,000 draws.
+Where several designs are tested at once, p-values are **Holm-corrected across them** and the
+corrected value is what the threshold applies to. Each prediction names what would refute it.
+
+### P30: copying needs attention at every gap, with inserts and sites as separate replicates
+
+**Test:** R6.1. `copy_test(..., seeds=10, sites=5)` — 10 random inserts crossed with 5 independent
+genomic insertion sites, 50 replicates per gap, at gaps 100, 1,000 and 10,000, under the five family
+conditions keeping the load-bearing layers on. Replicate unit: the (insert, site) pair. Statistic:
+mean second-copy accuracy with a bootstrap interval resampling inserts and sites separately, so the
+larger of the two intervals is reported.
+
+**Prediction:** with attention ablated, mean second-copy accuracy is below 0.35 at all three gaps and
+its interval excludes 0.90; unablated it is above 0.95 at all three gaps.
+
+**Refuted if:** the attention-ablated interval overlaps 0.90 at any gap, or the unablated mean falls
+below 0.95.
+
+### P31: LI's long-range contribution survives replication
+
+**Test:** R6.1, the `-li` condition.
+
+**Prediction:** at a 10,000-letter gap, mean second-copy accuracy without LI is below 0.80 and its
+interval excludes the unablated mean; at a 100-letter gap its interval includes the unablated mean.
+
+**Refuted if:** the 10,000-gap interval includes the unablated mean — the single-measurement 55.6%
+would then be a sampling artifact.
+
+### P32: six load-bearing layers, defined by a threshold fixed in advance
+
+**Test:** R6.2. Health measured on **5 independent DNA sets**, each 4,096 letters, drawn from disjoint
+genome regions and each mixing coding and intergenic sequence. A layer counts as load-bearing only if
+removing its mixer leaves health below 0.5 on **all 5** sets. The 0.5 cutoff and the all-5 rule are
+fixed here.
+
+**Prediction:** exactly the six layers found in rounds 2–5 (L0, L1, L4, L9, L29, L30) meet the rule,
+and no others do.
+
+**Refuted if:** any of the six fails on any set, or a seventh layer meets the rule. Either outcome
+means the map is DNA-dependent, which is itself reportable.
+
+### P33: the reading frame goes with MR, across 20 genes
+
+**Test:** R6.3. Codon-position accuracy on **20 randomly chosen genes** (minus-strand genes
+reverse-complemented, overlapping genes excluded), under the family conditions. Replicate unit: the
+gene. Statistic: the periodicity measure per gene, with a gene-level bootstrap interval, Holm-corrected
+across the four family conditions.
+
+**Prediction:** removing MR reduces periodicity and its interval excludes the unablated interval, while
+removing SE does not.
+
+**Refuted if:** MR's interval overlaps the unablated one, or SE's interval also excludes it. This claim
+currently rests on one region, so a refutation is a real possibility and is the reason to run it.
+
+### P34: retrieval gain on real repeat families, with a headroom rule fixed in advance
+
+**Test:** R6.4. At least **3** of the six repeat families now found in E. coli. A family is
+**excluded before scoring** if the model predicts its first copy above 95% accuracy, because that
+leaves no headroom for retrieval to add anything — the flaw that made 16S rRNA uninformative in round
+4. Replicate unit: the family. Statistic: retrieval gain per family with an interval over probes.
+
+**Prediction:** at least 3 families pass the headroom rule; among those, mean retrieval gain exceeds
+0.5 nats unablated, and removing attention cuts it by at least 70%.
+
+**Refuted if:** fewer than 3 families pass (the test is then **untestable**, not refuted), or attention
+ablation leaves more than half the gain.
+
+### P35: a mutation's effect leaves its position early, at n ≥ 100
+
+**Test:** R6.5. At least **100** variants: ClinVar BRCA1 plus in-silico E. coli variants spanning
+silent, missense, nonsense and non-coding. The **hand-off block** is defined here as the first block
+after which under 10% of the downstream effect still transfers when the mutated position's residual is
+patched.
+
+**Prediction:** the median hand-off block is at or below 7, the 90th percentile at or below 12, and the
+distribution differs between variant classes (nonsense later than silent).
+
+**Refuted if:** the median exceeds 10, or the interquartile range spans more than 15 blocks — the
+"blocks 0–7" claim from five variants would then not generalise.
+
+### What round 6 does not do
+
+No new biology. The matched substitution designs are not rerun; extending them past isoleucine and
+arginine needs a cross-site saturation design, and replicating them on other genomes and a second
+checkpoint is round 7. Both are listed in `OPEN_ITEMS.md`.

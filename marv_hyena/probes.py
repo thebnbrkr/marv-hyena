@@ -77,6 +77,9 @@ def score_copy(logits: torch.Tensor, ids: torch.Tensor, probe: CopyProbe, skip: 
     second copy are excluded: the model needs a few letters to recognise the repeat."""
     a0, a1 = probe.first
     b0, b1 = probe.second
+    if a1 - a0 - skip <= 0:
+        raise ValueError(f"insert of {a1 - a0} letters is not longer than skip={skip}: "
+                         "nothing would be scored")
     return {
         "first_acc": span_accuracy(logits, ids, a0 + skip, a1),
         "second_acc": span_accuracy(logits, ids, b0 + skip, b1),
