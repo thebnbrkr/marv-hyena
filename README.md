@@ -57,7 +57,8 @@ Vortex computes something differently from what this code assumes.
 
 Short version, as of round 5. The reasoning, numbers and mistakes are in [`RESEARCH_LOG.md`](RESEARCH_LOG.md), and
 predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md). Every paper that bears on a claim — what it
-says, how much of it we actually read, and what it does to us — is in [`RELATED_WORK.md`](RELATED_WORK.md).
+says, how much of it we actually read, and what it does to us — is in [`RELATED_WORK.md`](RELATED_WORK.md). Everything
+owed before publication, including two external reviews' points, is in [`OPEN_ITEMS.md`](OPEN_ITEMS.md).
 
 - **One block decides.** Block 30's output is ~10⁵× larger than any other, so the prediction is a function of block
   30 alone. It's built into the weights (the same in float32), and block 31 has no effect.

@@ -398,6 +398,9 @@ resemblance (exact lookup plus a compressed running summary) is the first thing 
 
 ## 8. Still owed before any of this is published
 
+*Consolidated, with an external review's points on replication and statistics, in
+[`OPEN_ITEMS.md`](OPEN_ITEMS.md). The list below is the citation-hygiene subset.*
+
 1. **Read `SUMMARY` and `SECONDHAND` entries in the original.** Michalak & Abreu, the ICML 2026
    paper, the pruning study, Bick, Arora, Lu.
 2. **Check the ICML paper's layer numbering** (0- or 1-based) before citing any layer number, and
