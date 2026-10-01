@@ -1633,6 +1633,93 @@ attention does the copying with LI assisting at long range, unlike text hybrids;
 *Neither review was systematic — about eight targeted searches each. They caught the obvious collisions, which is
 exactly the failure mode this project keeps hitting, and they cost nothing compared with the runs they protect.*
 
+## 2026-10-01: A second review, and the correction it forced on the headline claim
+
+A second outside read of the log arrived. It accepted the three checks from 30 September and raised eight further
+points. **Seven are valid**, one is right on substance but wrong about where a phrase came from, and one new check it
+proposed turned out to matter more than anything else in the list. Full numbers in `PREDICTIONS.md` under "second
+pass".
+
+### The check that changed a number
+
+The claim was: the missense-vs-silent difference peaks in SE blocks at 85% of sites when the amino acid changes and
+11% when it does not. The review's objection: nothing real separates the two arms of the four-fold design, so its
+differences are small and its peaks may land wherever *noise* peaks. The 85-vs-11 contrast could then be signal
+against noise rather than meaning against no meaning.
+
+Matching the designs on how big the per-block difference is, before asking where it peaks:
+
+| restricted to peak difference ≥ 0.313 (matched's median) | sites | peak is in an SE block |
+|---|---|---|
+| amino acid changes (`matched`) | 75 | **89.3%** (CI 0.80–0.94) |
+| no gene present (`noncoding`) | 51 | **51.0%** (CI 0.38–0.64) |
+| no amino-acid change (`fourfold`) | 6 | too few to report |
+| chance (9 of 32 blocks) | — | 28.1% |
+
+z = 4.81, p = 1.5e-6. So **the honest claim is 89% against 51%, not 85% against 11%.** Part of the original contrast
+was size: large differences of any kind favour SE blocks somewhat (51% against a 28% chance level). What survives is
+that an amino-acid change is far more SE-localised than a size-matched difference with no gene. That is a weaker
+headline and a much harder one to attack.
+
+Two details worth keeping. Within each design the preference does *not* depend on size — `matched` holds 82–90%
+across its own range, `fourfold` holds 11–16% across its — so neither is internally magnitude-driven. And the
+four-fold design cannot enter the size-matched comparison at all: only 6 of 150 sites reach the threshold, which is
+itself the finding, because silent-vs-silent differences are small.
+
+### A statistic that was never defined where we used it
+
+Checking the above surfaced something separate. `peak_blocks(..., "diff")` takes argmax(div_b − div_a). For the stop
+designs that quantity is **≤ 0 at 111 of 150 sites** (median exactly 0), because the stop arm diverges more than the
+missense arm at *every* block. The argmax then returns the least-negative block, which is not a peak at all. The
+round-5 notebook prints a line about "where stop and missense separate most"; that line is **not interpretable** and
+is withdrawn. The stop designs need the sign flipped, or a signed statistic.
+
+*This is the fourth statistic in this project that computed something other than what its name said. The pattern is
+consistent: each one was a reasonable formula applied to a case its author had not pictured. A statistic needs a test
+on data whose answer is known — not only its code.*
+
+### The seven other valid points
+
+- **"SE does no recall at all" is unsupported.** The copying gaps are 100, 1,000 and 10,000 letters, all far beyond
+  SE's 7-letter reach, so the test cannot speak to *local* recall. The claim that the map "contradicts the
+  architecture paper in both directions" goes with it. What survives: SE plays no part in recall at the distances
+  tested.
+- **"A real divergence from text hybrids" overstates what the precedent did.** The text-hybrid study removed
+  attention; it did not remove the recurrent layers. So it cannot be cited as showing they contribute nothing. The
+  defensible form: *LI is needed for long-range copying, which the text-hybrid studies did not test.* We have also
+  only read that work through search summaries, not in the original.
+- **The "severity gradient" is confounded with codon position.** The isoleucine pairs change the **third** codon
+  letter and the arginine pairs the **first** (confirmed in the stored rows: `I pos2`, `R pos0`). So "mild versus
+  drastic" and "third versus first position" cannot be separated here. The defensible form: *much larger at arginine
+  sites (96.2% vs 66.9%)*, with no claim about why. Flipped isoleucine (63.2%, p = 0.063) should not be leaned on.
+- **"Part of the published transversion effect may be protein change" is not safe.** That variant set includes
+  non-coding regions, where no protein changes. The defensible form: *within matched coding sites, letter type alone
+  has at most a modest effect (54.7%, CI 0.47–0.62).*
+- **"SE carries the signal" should be "peaks in SE"** until SE writes are ablated or patched on these pairs.
+  `peak_blocks` is descriptive, not causal.
+- **The controls-toolkit target was garbled.** It conflated two papers: the 36 species belong to the Evo 2 paper's
+  silent-versus-missense result, not to the transversion study.
+- **Smaller ones, all correct.** The notebook page said "after three rounds" when it is now five plus 5b. The
+  round-2 table said "any of the other 26" when five layers broke there, so it is 27 (round 3's six is a different
+  run). "Recovered by a different method" overstates it, since the load-bearing map and the block-30 attribution both
+  use single-component mean-ablation and differ only in readout. And block 31's inertness was shown in **bf16**: the
+  float32 check covers block 30's magnitude and the contribution of earlier writes (`precision` holds `norm_fp32` and
+  `logit_change_from_earlier_writes_fp32`), not block 31.
+
+### The one point that is right for the wrong reason
+
+The review said that "training sharpens a selectivity the architecture already has" contradicts our own registered
+criterion. It does not: that exact sentence is **the wording P28 pre-committed to on refutation**, written before the
+run. But the substance is right — with a gap of 0.04 and every null ahead at every cutoff, "sharpens" implies
+trained > null, which the data do not support. "**Matches**" is the accurate word, and the log and page now use it.
+The registered sentence stays in `PREDICTIONS.md` as written, with this note beside it, because predictions are not
+edited after the fact.
+
+The review's related observation is a real asymmetry worth recording: the trained median is computed over **live**
+channels only (3,372 of 4,096), while the nulls have no dead channels to exclude (4,096 of 4,096). Dead channels have
+tie-ordered top-k lists, so including them would most likely *lower* the trained median — which would make the
+refutation stronger, not weaker. That direction is reasoning, not measurement, and a rerun could settle it.
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.

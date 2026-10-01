@@ -960,3 +960,60 @@ one checkpoint, a substitution that changes the amino acid disturbs Evo 2 more t
 position — with substitution type held equal (72.0%, n = 150) or set against it (80.0%, n = 150), with codon frequency
 working against the result at 266 of 300 sites (75.9% there, p = 7.7e-18), and graded by how drastic the substitution
 is (Ile→Met 66.9%, Arg→Gly/Trp 96.2%).* `fourfold` sites, where no amino acid changes, give 54.7% (p = 0.29).
+
+---
+
+## Round 5 re-analysis, second pass (2026-10-01): the SE localisation is partly a size effect
+
+No new GPU run; all from `results/round5/results_round5.json`. A second review asked whether the 85%-vs-11% contrast
+compares *signal against noise* rather than *meaning against no meaning*: the four-fold design has nothing real
+separating its two arms, so its peaks may land wherever noise peaks. The check is to match designs on how big the
+per-block difference is before comparing where it peaks. The concern is partly right.
+
+### Within a design, the SE preference does not depend on difference size
+
+| design | all sites | top third by peak size | bottom third |
+|---|---|---|---|
+| `matched` | 86.0% | 90.0% | 82.0% |
+| `round4` | 85.0% | 82.5% | 77.5% |
+| `fourfold` | 11.3% | 16.0% | 16.0% |
+| `noncoding` | 30.7% | **50.0%** | 16.0% |
+
+`matched` holds 82–90% across its own range and `fourfold` holds 11–16% across its, so neither is driven by
+magnitude internally. But `noncoding` rises from 16% to 50% with difference size, which is the effect the review
+predicted.
+
+### Matched on difference size, the gap shrinks but survives
+
+Restricting every design to sites whose peak difference is at least `matched`'s median (0.313):
+
+| | sites | peak is in an SE block | 95% CI |
+|---|---|---|---|
+| `matched` (amino acid changes) | 75 | **89.3%** | 0.80–0.94 |
+| `noncoding` (no gene) | 51 | **51.0%** | 0.38–0.64 |
+| `fourfold` (no amino-acid change) | 6 | — | too few to report |
+| SE chance level (9 of 32 blocks) | — | 28.1% | — |
+
+Two-proportion test: z = 4.81, p = 1.5e-6.
+
+**So the honest claim is 89% versus 51%, not 85% versus 11%.** Both are above the 28% chance level, so large
+differences of any kind are somewhat more likely to peak in an SE block — part of the original contrast was size.
+What survives is that an amino-acid change is still far more SE-localised than a size-matched difference with no
+gene present. The four-fold design cannot contribute to this comparison at all: only 6 of its 150 sites reach the
+matched threshold, which is itself the point — silent-vs-silent differences are small.
+
+### The peak statistic is not defined for the stop designs
+
+`peak_blocks(..., "diff")` takes `argmax(div_b − div_a)`. In `stop_matched` that quantity is **≤ 0 at 111 of 150
+sites** (median exactly 0.0000), and in `stop_flipped` at 25 of 150, because the stop arm diverges more than the
+missense arm at *every* block. The argmax then returns the least-negative block, which is not a peak. Any statement
+about "where stops and missense separate most" computed this way, including the line the round-5 notebook prints, is
+**not interpretable** and is withdrawn. A signed version of the statistic is needed, or the stop designs must use
+`div_a − div_b`.
+
+### Consequence for P26
+
+P26's score is unchanged. Its reading is narrowed: "the missense-vs-silent difference peaks in SE blocks, and does so
+far more than a size-matched difference outside genes (89% vs 51%, chance 28%)". The word *carry* should not be used
+until SE writes are ablated or patched on these pairs; `peak_blocks` is descriptive, not causal. Still open from
+round 5b: the weight-shuffled leg.

@@ -78,7 +78,7 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
   With the swap type held equal, missense beats silent at the same letter at 72% of 150 sites; with swap type
   pushing the other way, 80%. Swap type alone, with no protein change, gives 55% (round 5; only Ile and Arg allow
   these designs). The difference shows up in SE layers at 85% of sites when the amino acid changes, and at 11% when
-  it doesn't.
+  it doesn't; matched on difference size against non-coding sites, 89% vs 51% (chance 28%).
 - **A premature stop disturbs the model far more than a missense change** at the same letter: 92–93% of 150 sites,
   whichever swap type each change is.
 - **The funnel defeats gradient attribution.** Integrated gradients at block 30's input attributes zero (a single
