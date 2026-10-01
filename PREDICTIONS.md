@@ -1157,3 +1157,73 @@ distribution differs between variant classes (nonsense later than silent).
 No new biology. The matched substitution designs are not rerun; extending them past isoleucine and
 arginine needs a cross-site saturation design, and replicating them on other genomes and a second
 checkpoint is round 7. Both are listed in `OPEN_ITEMS.md`.
+
+---
+
+## Round 6 rehearsal (2026-10-01) — NOT the registered run
+
+Run on an 80 GB A100, 95/95 tests, smoke checks 8/8, every cell clean, `mode: quick`. Raw files in
+`results/round6/` with `rehearsal` in the names so they are never mistaken for the record. **No outcome
+below is recorded against P30–P35**, with one exception noted at the top. Reduced n: 3 inserts × 2 sites
+(not 10 × 5), 4 genes (not 20), 2 families (not 6), 12 variants (not 120).
+
+### P32 — CONFIRMED, and this one is not reduced
+
+`find_load_bearing` runs on all 5 DNA sets regardless of `QUICK`, so **this is the full registered
+test**. Health per set, against baselines of 0.633–0.858:
+
+| block | kind | set 0 | 1 | 2 | 3 | 4 | below 0.5 in |
+|---|---|---|---|---|---|---|---|
+| 0 | se | 0.291 | 0.264 | 0.286 | 0.284 | 0.284 | **5/5** |
+| 1 | mr | 0.434 | 0.354 | 0.370 | 0.386 | 0.383 | **5/5** |
+| 4 | se | 0.397 | 0.325 | 0.359 | 0.390 | 0.322 | **5/5** |
+| 9 | li | 0.244 | 0.252 | 0.236 | 0.241 | 0.235 | **5/5** |
+| 29 | mr | 0.282 | 0.350 | 0.260 | 0.268 | 0.271 | **5/5** |
+| 30 | li | 0.282 | 0.246 | 0.260 | 0.268 | 0.271 | **5/5** |
+
+Exactly the six layers predicted, no borderline cases, and no seventh layer meets the rule. The
+load-bearing map is now replicated on 5 independent DNA sets against a threshold fixed in advance.
+
+Also newly visible: **baseline health varies 0.633–0.858 across the five sets.** Rounds 2–5 measured it
+on one sequence and reported 0.696 — mid-range, but the spread is wide enough that any future
+health-based threshold should be stated relative to the set it was measured on. A descriptive companion
+rule (health below 60% of each set's own baseline) drops block 1 and keeps the other five.
+
+### What the reduced runs point at, with no outcome recorded
+
+- **P30 looks likely to confirm.** Attention ablated gives 0.264 / 0.259 / 0.258 at gaps 100 / 1,000 /
+  10,000, every interval excluding 0.90, unablated ≥ 0.95 throughout. All clauses met at n = 6.
+- **P31's second clause looks likely to fail.** Without LI the 10k mean is 0.660 (interval
+  0.467–0.854, excluding the unablated 1.000) — the first clause. But at a **100-letter** gap, −LI gives
+  0.949 with an interval of 0.902–0.996, which **excludes** the unablated 1.000, where P31 predicted it
+  would include it. If that holds at full n, LI contributes a little even at short range.
+- **P33 looks likely to be REFUTED, by its own clause.** Removing MR drops periodicity from 0.276 to
+  0.035 and its interval excludes the unablated interval — but **removing SE also excludes it** (0.108,
+  interval 0.060–0.151), which P33 named as a refutation condition. Every ablation lowers periodicity
+  (−li 0.148, −attn 0.173), and health falls with it (none 0.650; −mr 0.459, −se 0.484, −li 0.518,
+  −attn 0.497). **This is the far-context problem again:** periodicity tracks damage, and MR is both the
+  lowest periodicity and close to the lowest health. The health-matched control (`OPEN_ITEMS.md` items
+  8–9) is no longer optional for this claim — it is the only way to separate "MR carries the frame" from
+  "removing MR hurts most".
+- **P34's headroom rule bites hard, as designed.** Of the two families the rehearsal reached, 23S rRNA
+  scored 0.956 on first copy and was **excluded**; IS5 scored 0.656 and was kept. With 16S at 0.989 in
+  round 4, both rRNAs are out. The full run tests 6 families, so whether 3 pass rests on the IS
+  elements. P34 may still come back **UNTESTABLE** by its own gate.
+- **P35 points away from the registered prediction.** Median hand-off block **24** (IQR 4–28, 90th
+  percentile 28) against a predicted median ≤ 7. The per-class split is the interesting part: non-coding
+  3, nonsense 14.5, missense 27, silent 28 — in-gene variants handing off *late* and non-coding *early*,
+  which is the opposite ordering round 3's five BRCA1 variants suggested.
+
+### A deviation in P35, corrected before the full run
+
+P35 registered "**ClinVar** BRCA1 plus in-silico E. coli variants". Two problems, both now fixed:
+
+1. The rehearsal's sampler drew **E. coli variants only** — the BRCA1 arm was never implemented, so the
+   numbers above are not the registered test even setting n aside. Round 3's claim came from human
+   BRCA1 sequence, so comparing against E. coli variants alone cannot bear on it.
+2. The BRCA1 variant set this project has access to is **Findlay et al.'s saturation-genome-editing
+   data** from the Evo 2 repository, labelled LOF / FUNC — the same source round 2 used — not ClinVar.
+   The registered wording is wrong, and is corrected here rather than quietly substituted.
+
+The notebook now runs both arms and reports the hand-off distribution by `source`, so the full run can
+say whether the "blocks 0–7" claim holds on the human variants it came from, on E. coli, or neither.

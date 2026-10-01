@@ -225,12 +225,22 @@ Request GenBank format so the existing loader works unchanged:
 
 ## A second checkpoint — and what our hardware allows
 
-| checkpoint | what it would show | runs on an A100? |
-|---|---|---|
-| **`evo2_7b_base`** | stability of every result | **yes, no new code — do this one** |
-| `evo2_7b_262k` | little beyond `7b_base` (same 7B lineage) | yes, low value |
-| **`evo2_1b_base`** | the genuinely **independent** second model, separately trained | **no — needs FP8 via Transformer Engine on Hopper** |
-| 20B / 40B | — | no, multiple Hopper GPUs |
+| checkpoint | context | FP8 / Hopper needed? | runs on our A100? |
+|---|---|---|---|
+| **`evo2_7b_base`** | 8K | no | **yes — do this one** |
+| `evo2_7b` (what every result so far used) | 1M | no | yes |
+| `evo2_7b_262k` | 262K | no | yes, low value (same lineage) |
+| **`evo2_7b_microviridae`** | 8K | no | **yes — the most divergent weights we can reach** |
+| `evo2_1b_base` | 8K | **FP8 required** | **no** |
+| `evo2_20b` | 1M | **FP8 required** | no |
+| `evo2_40b` / `evo2_40b_base` | 1M / 8K | **FP8, and multiple H100s** | no |
+
+*Verified against the Arc Institute `evo2` README on 2026-10-01, not from memory. Every 7B variant is
+BF16-compatible and needs no Transformer Engine; the 1B, 20B and 40B all require FP8 on Hopper.*
+
+**So the only independently-trained second model (`evo2_1b_base`) is the one we cannot run**, and the
+40B needs several H100s. That is a hardware fact, not a choice, and the paper should say so plainly
+rather than leave the single-checkpoint limitation unexplained.
 
 31. **Run `evo2_7b_base`.** *1 run.* Copying, round 5 and the SE peak. **State the caveat in the
     paper:** `evo2_7b` was produced by context-extending `evo2_7b_base`, so this is the same training
@@ -243,6 +253,13 @@ Request GenBank format so the existing loader works unchanged:
     H100 — but it is modified weights in a different framework, so the Vortex hooks would need
     porting. Use it as a fallback for the **behavioural** tests (round 5) only, never the internal
     ones.
+34. **`evo2_7b_microviridae` is the best A100-reachable divergence test.** It is `evo2_7b_base`
+    fine-tuned on a bacteriophage family, so unlike `evo2_7b` and `evo2_7b_262k` it differs from the
+    parent by *training* rather than by context extension. Running the operator map and the funnel on
+    it answers a question no other accessible checkpoint can: does fine-tuning move the wiring, or is
+    the map a property of the pre-trained model? Read-only analysis of a published checkpoint, so it
+    sits inside this repo's scope note (understanding and measuring, never inserting capabilities).
+35. **20B and 40B are future work**, named as such, with the hardware reason given.
 
 ## His condition for drafting the paper
 
