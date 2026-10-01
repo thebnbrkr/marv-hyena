@@ -137,3 +137,37 @@ def health(hm: HyenaModel, seq: str) -> dict:
     lp = float(token_logprobs(logits, ids).mean())
     acc = float((logits[:-1].argmax(-1).cpu() == ids[0, 1:].cpu()).float().mean())
     return {"health_acc": acc, "health_lp": lp, "broken": lp < UNIFORM_LP + 0.1}
+
+
+def device_map(hm: HyenaModel) -> dict:
+    """Which CUDA device each block's parameters live on.
+
+    Vortex splits the 20B and 40B checkpoints across whatever CUDA devices it
+    finds, so a sharded model has blocks on several devices while `hm.device`
+    reports only the embedding's. Everything in this package is written to
+    survive that -- `capture_writes` moves each write to CPU float32 before
+    combining them, and `mean_ablate` sends each replacement back with
+    `.to(x.device)` -- but a new hook that forgets is an easy mistake, and the
+    error it raises ("Expected all tensors to be on the same device") is much
+    easier to read with this table beside it.
+
+    Returns the embedding, per-block and unembed devices, plus `sharded`.
+    """
+    def dev_of(module):
+        for p in module.parameters():
+            return str(p.device)
+        for b in module.buffers():
+            return str(b.device)
+        return "none"
+
+    blocks = {i: dev_of(hm.block(i)) for i in range(hm.n_blocks)}
+    seen = sorted(set(blocks.values()) | {str(hm.device)})
+    return {
+        "embedding": str(hm.device),
+        "blocks": blocks,
+        "unembed": str(hm.unembed_weight().device),
+        "devices": seen,
+        "n_devices": len(seen),
+        "sharded": len(seen) > 1,
+        "by_device": {d: [i for i, x in blocks.items() if x == d] for d in seen},
+    }

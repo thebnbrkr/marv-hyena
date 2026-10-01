@@ -1227,3 +1227,79 @@ P35 registered "**ClinVar** BRCA1 plus in-silico E. coli variants". Two problems
 
 The notebook now runs both arms and reports the hand-off distribution by `source`, so the full run can
 say whether the "blocks 0–7" claim holds on the human variants it came from, on E. coli, or neither.
+
+---
+
+## Scaling predictions (registered 2026-10-01, before `notebooks/marv_hyena_scaling_{20b,40b}_h100.ipynb` run)
+
+Evo 2's 20B and 40B checkpoints need FP8 on Hopper GPUs, which this project does not have; the
+notebooks are written to be run by someone else on borrowed hardware (`notebooks/SCALING_RUN_README.md`
+is what gets sent with them). They have **never run on real H100 hardware** — only dry-run against the
+tiny CPU model — so Stage 0 is a gate that stops before anything expensive if the self-checks fail.
+
+**Every prediction below is about a pattern, never an index.** 20B and 40B have different depths and
+attention layouts, so "block 30" is meaningless for them. Where a prediction names a position it names
+it relative to the end of the network.
+
+### P36: the funnel is architectural
+
+**Test:** Stage 2. Write magnitude of every (block, part) at the last position, in 1 region (quick) or
+3 (full), plus each write's share of the final residual.
+
+**Prediction:** in both 20B and 40B, one block's write exceeds the second largest by a factor of at
+least 10³, that block is a **Hyena** block in the **last quarter** of the network, and its share of the
+final residual is above 0.99.
+
+**Refuted if:** the largest-to-second ratio is under 10² in either model, or the dominant block is an
+attention block, or it sits in the first half. Then the 7B funnel is a property of that checkpoint and
+the whole bottleneck story narrows to it.
+
+### P37: the last block is inert
+
+**Test:** Stage 2b. Mean-ablate the final block's mixer and MLP; measure the largest logit change.
+
+**Prediction:** the maximum logit change from ablating the final block is below 10⁻² in both models.
+
+**Refuted if:** it exceeds 10⁻¹ in either. (7B gives exactly 0 — bit-identical — but that is a bf16
+rounding consequence of the funnel's size, so an exact zero is not required.)
+
+### P38: attention is required for copying, at every scale
+
+**Test:** Stage 4. `copy_test` with the load-bearing layers kept on, 10 inserts × 5 sites per gap in
+the full run.
+
+**Prediction:** with attention ablated, mean second-copy accuracy is below 0.40 at every gap tested,
+while the unablated model is above 0.90.
+
+**Refuted if:** attention-ablated accuracy exceeds 0.60 at any gap — the copying circuit would then be
+routed differently at scale.
+
+### P39: load-bearing layers in every Hyena family, none in attention
+
+**Test:** Stage 3. One mixer at a time, health below 0.5 on all 5 DNA sets (2 in the quick run).
+
+**Prediction:** at least one load-bearing layer in each of SE, MR and LI, and **zero** in attention.
+
+**Refuted if:** any attention block is load-bearing, or any Hyena family has none. Note this test is
+the one most likely to be affected by the absolute 0.5 cutoff: baseline health varies by DNA set
+(0.633–0.858 in 7B), and a larger model may sit elsewhere. The notebook prints baselines so the cutoff
+can be judged, and a borderline outcome is reported as borderline rather than forced.
+
+### P40: the amino-acid effect and its SE localisation hold at scale
+
+**Test:** Stage 6, only if `RUN_BIOLOGY = True`. `matched`, `fourfold` and `stop_matched` designs at 60
+sites each in the full run.
+
+**Prediction:** on `matched`, the protein-changing substitution is more disruptive at ≥ 60% of sites;
+on `fourfold` the rate is within 10 points of 50%; on `stop_matched` the stop wins at ≥ 85%; and SE's
+share of peak blocks is at least 20 points higher on `matched` than on `fourfold`.
+
+**Refuted if:** `matched` falls below 55%, or SE's share on `matched` is within 10 points of its share
+on `fourfold`. **Untestable** if fewer than 30 sites are scored per design.
+
+### What these runs cannot settle
+
+20B and 40B share Evo 2's training corpus and the StripedHyena 2 architecture, so agreement shows the
+pattern is **scale-stable within one model family** — not that it is a property of hybrid architectures
+in general. That would need a differently-trained model, and the only independently-trained Evo 2
+checkpoint (`evo2_1b_base`) also requires Hopper. Both limits belong in the paper.

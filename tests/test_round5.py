@@ -492,3 +492,16 @@ def test_genbank_track_accepts_table_11_like_e_coli(tmp_path):
     for bad in (2, 3, 4, 5):          # 2 vertebrate mito, 3 yeast mito, 4, 5 -- all reassign codons
         with pytest.raises(ValueError, match="transl_table"):
             probes.genbank_track(_fake_gb(tmp_path, transl_table=bad), 0, 60)
+
+
+# ---------------------------------------------------------------- sharded-model prep (20B / 40B)
+def test_device_map_reports_a_single_device_model(hm):
+    """On the tiny CPU model everything is on one device, so sharded is False and
+    every block is accounted for. The 20B/40B runs use this to read a device
+    mismatch, so its shape matters more than its values here."""
+    from marv_hyena import diagnostics
+    dm = diagnostics.device_map(hm)
+    assert dm["sharded"] is False and dm["n_devices"] == 1
+    assert sorted(dm["blocks"]) == list(range(hm.n_blocks))
+    assert sum(len(v) for v in dm["by_device"].values()) == hm.n_blocks
+    assert dm["embedding"] == dm["unembed"] == dm["devices"][0]
