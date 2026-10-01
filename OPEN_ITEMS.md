@@ -176,6 +176,86 @@ pathogenic.
 
 ---
 
+# GROUP 2b — Round 7: replication across organisms and models
+
+Added 2026-10-01 after a review asked for organism- and model-level replication. This is the
+reviewer's "different dataset" point taken seriously, and it is the condition he set before drafting a
+paper. **Nothing here needs new analysis code** — the designs, statistics and loaders already exist.
+
+## Why yeast specifically, and not just "another organism"
+
+| reason | detail |
+|---|---|
+| It is a **eukaryote** | every result so far is one bacterium |
+| **Arginine codon usage flips** | in E. coli AGA and AGG are among the rarest codons; in yeast AGA is the *most used* arginine codon. The matched designs lean on arginine sites, so this is a natural experiment for the codon-rarity control: if the effect holds in both, codon frequency cannot be driving it |
+| **Low GC** | ~38% against E. coli's ~51%, so it also tests base composition |
+
+Third organism: a **high-GC non-pathogenic** bacterium, *Caulobacter crescentus* (~67% GC). E. coli,
+yeast and Caulobacter then span 38–67% GC and both domains, which also satisfies the n ≥ 3 instinct.
+
+## Three yeast-specific checks, all now enforced in code
+
+27. **Nuclear genes only.** Yeast mitochondria use translation table 3, which really does reassign
+    codons. `probes.genbank_track` now **refuses** any organelle record or any `transl_table` outside
+    {1, 11} — table 11 (bacterial) is allowed because it differs from the standard code only in which
+    codons may *initiate*, not in what any codon encodes. Skip the mitochondrial record (NC_001224).
+    *This is item 2.3, built; it is what makes yeast safe to run.*
+28. **Exclude sites near splice junctions.** *code.* Few yeast genes have introns, but a "silent"
+    change near an exon boundary can disrupt splicing. `genbank_track` already skips CDS features with
+    more than one location part when assigning codon phase, so spliced genes contribute no phased
+    sites — confirm that is enough, and otherwise add an explicit margin.
+29. **Same strand and overlap rules as E. coli.** Reverse-complement minus-strand genes, drop
+    overlapping ones. Round 6's `pick_genes` already does both; reuse it rather than rewriting it.
+
+## Getting the data (Colab, two commands)
+
+Request GenBank format so the existing loader works unchanged:
+
+```bash
+!curl -sO https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets && chmod +x datasets
+!./datasets download genome accession GCF_000146045.2 --include genome,gbff --filename yeast_S288C.zip
+!unzip -q yeast_S288C.zip -d yeast
+```
+
+`GCF_000146045.2` is the S288C reference assembly (R64).
+
+30. **Per organism:** all round-5 designs at 150 sites each, the copying test, and the reading-frame
+    test on ≥ 20 genes. *1 run per organism.* Pre-register the pass condition **before running**: the
+    matched design's interval excludes 50% in each genome.
+
+## A second checkpoint — and what our hardware allows
+
+| checkpoint | what it would show | runs on an A100? |
+|---|---|---|
+| **`evo2_7b_base`** | stability of every result | **yes, no new code — do this one** |
+| `evo2_7b_262k` | little beyond `7b_base` (same 7B lineage) | yes, low value |
+| **`evo2_1b_base`** | the genuinely **independent** second model, separately trained | **no — needs FP8 via Transformer Engine on Hopper** |
+| 20B / 40B | — | no, multiple Hopper GPUs |
+
+31. **Run `evo2_7b_base`.** *1 run.* Copying, round 5 and the SE peak. **State the caveat in the
+    paper:** `evo2_7b` was produced by context-extending `evo2_7b_base`, so this is the same training
+    run at an earlier stage — a **stability check, not an independent model.**
+32. **`evo2_1b_base` is out of reach on our hardware.** We have A100s; it needs an H100. Two honest
+    options: rent H100 hours for a few hours, or name it as future work. If it does get run, its layer
+    layout differs, so **test for the pattern** — a single dominant late block, attention doing the
+    copying, the SE peak — **never for specific indices like "block 30".**
+33. **The BioNeMo 1B checkpoint** is fine-tuned to support BF16 as well as FP8, which may avoid the
+    H100 — but it is modified weights in a different framework, so the Vortex hooks would need
+    porting. Use it as a fallback for the **behavioural** tests (round 5) only, never the internal
+    ones.
+
+## His condition for drafting the paper
+
+A concrete "done": (a) repeats and statistics — intervals, gene-level bootstrap, the six-family repeat
+run (round 6); (b) round 5 replicated in yeast, plus Caulobacter if possible; (c) `evo2_7b_base`
+replication of copying, round 5 and the SE peak.
+
+**Writing need not wait.** The introduction, methods and the controls section — with its five cases
+where a control reversed a finding — do not depend on any of these results. Draft those while the runs
+go.
+
+---
+
 # GROUP 3 — Citation hygiene
 
 23. **Read every `SUMMARY` and `SECONDHAND` entry in `RELATED_WORK.md` before citing it.** Michalak &
@@ -198,7 +278,9 @@ pathogenic.
 | 4 | SE causal test + the scrambled-null leg | 1 run + code | our strongest claim |
 | 5 | Mutation propagation at n ≥ 50 | 1 run | his 1.2 |
 | 6 | Health-matched controls (far context, MR damage curve) | code + 1 run | his 1.5 |
-| 7 | Their wobble test on E. coli; swappable code table | 1 run + code | their 2.2, 2.3 |
+| 7 | Their wobble test on E. coli | 1 run | their 2.2 |
+| 8 | `evo2_7b_base` replication (copying, round 5, the SE peak) | 1 run | his 1.4 |
+| 9 | Round 5 + copying + reading frame in **yeast**, then Caulobacter | 1 run each | his 1.4, and the arginine-rarity natural experiment |
 
 **Step 1 is free and answers part of both groups — start there.** Steps 1–4 turn the strongest claims
 from suggestive into solid. Steps 5–6 close the two results marked "measured once" and "withdrawn".

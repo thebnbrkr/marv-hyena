@@ -117,12 +117,46 @@ class Track:
     strand: np.ndarray  # +1 / -1 / 0
 
 
+# Organelles do not use the standard genetic code: in vertebrate mitochondria AGA/AGG are stops and
+# ATA is methionine, in yeast mitochondria CTN is threonine. `marv_hyena.codons` builds its table once
+# from the STANDARD code, so pointing these tools at an organelle silently mislabels synonymous and
+# missense substitutions -- the exact error Mathur & Sachidanandam 2026 document in Evo 2 itself.
+# Refuse it at the loader rather than return a wrong answer.
+_ORGANELLE_WORDS = ("mitochondrion", "mitochondrial", "chloroplast", "plastid", "apicoplast", "kinetoplast")
+# NCBI translation tables whose 64 codon -> amino-acid assignments are IDENTICAL to table 1:
+#   1  the standard code
+#   11 bacterial, archaeal and plant plastid -- differs from 1 only in which codons may INITIATE
+#      translation, not in what any codon encodes. E. coli (NC_000913) and Caulobacter declare 11,
+#      and yeast NUCLEAR genes declare 1; yeast mitochondria declare 3, which does differ.
+_SAME_AS_STANDARD = frozenset({1, 11})
+
+
+def _assert_standard_code(rec, path: str) -> None:
+    """Raise if this GenBank record is an organelle genome, or declares a transl_table
+    other than 1 (the standard code)."""
+    hay = " ".join(str(v).lower() for f in rec.features if f.type == "source"
+                   for vals in f.qualifiers.values() for v in vals)
+    hay += " " + str(rec.description).lower() + " " + " ".join(rec.annotations.get("keywords", [])).lower()
+    hit = next((w for w in _ORGANELLE_WORDS if w in hay), None)
+    tables = {int(v) for f in rec.features for v in f.qualifiers.get("transl_table", [])
+              if str(v).isdigit()}
+    nonstandard = sorted(t for t in tables if t not in _SAME_AS_STANDARD)
+    if hit or nonstandard:
+        why = f"organelle ({hit})" if hit else f"transl_table={nonstandard}"
+        raise ValueError(
+            f"{path}: {why}. marv_hyena.codons assumes the standard genetic code "
+            f"(transl_table in {sorted(_SAME_AS_STANDARD)}), "
+            "so synonymous/missense calls here would be silently wrong. Use a nuclear genome, or add "
+            "an explicit code table to codons before analysing this record.")
+
+
 def genbank_track(path: str, start: int, end: int, types=("CDS", "tRNA", "rRNA", "ncRNA", "tmRNA",
                                                            "mobile_element", "regulatory")) -> Track:
     """Annotate genome[start:end] from a GenBank file (needs biopython)."""
     from Bio import SeqIO
 
     rec = next(SeqIO.parse(path, "genbank"))
+    _assert_standard_code(rec, path)
     seq = str(rec.seq[start:end]).upper()
     n = end - start
     phase = np.full(n, -1, dtype=np.int8)

@@ -439,3 +439,56 @@ def test_score_copy_refuses_an_insert_shorter_than_skip():
     probe = probes.CopyProbe("A" * 200, (0, 20), (100, 120), 80)
     with pytest.raises(ValueError, match="not longer than skip"):
         probes.score_copy(torch.zeros(1, 200, 8), torch.zeros(1, 200, dtype=torch.long), probe)
+
+
+# ---------------------------------------------------------------- organelle guard (round 7 prep)
+def _fake_gb(tmp_path, source_quals=None, transl_table=None, desc="Synthetic test record"):
+    """A minimal GenBank file: biopython writes it, genbank_track reads it."""
+    from Bio.Seq import Seq
+    from Bio.SeqRecord import SeqRecord
+    from Bio.SeqFeature import SeqFeature, FeatureLocation
+    from Bio import SeqIO
+    rec = SeqRecord(Seq("ATG" + "AAACCCGGGTTT" * 20 + "TAA"), id="TEST", name="TEST",
+                    description=desc, annotations={"molecule_type": "DNA"})
+    rec.features.append(SeqFeature(FeatureLocation(0, len(rec.seq)), type="source",
+                                   qualifiers=source_quals or {"organism": ["Testus fakus"]}))
+    q = {"gene": ["x"]}
+    if transl_table is not None:
+        q["transl_table"] = [str(transl_table)]
+    rec.features.append(SeqFeature(FeatureLocation(0, 60, strand=1), type="CDS", qualifiers=q))
+    path = tmp_path / "t.gb"
+    SeqIO.write(rec, str(path), "genbank")
+    return str(path)
+
+
+def test_genbank_track_accepts_a_nuclear_record(tmp_path):
+    path = _fake_gb(tmp_path)
+    tr = probes.genbank_track(path, 0, 60)
+    assert len(tr.seq) == 60
+
+
+def test_genbank_track_refuses_an_organelle_record(tmp_path):
+    """Yeast and vertebrate mitochondria use a different code; codons.py assumes the
+    standard one, so the loader must refuse rather than mislabel substitutions."""
+    path = _fake_gb(tmp_path, source_quals={"organism": ["Testus fakus"],
+                                            "organelle": ["mitochondrion"]})
+    with pytest.raises(ValueError, match="organelle"):
+        probes.genbank_track(path, 0, 60)
+
+
+def test_genbank_track_refuses_a_nonstandard_transl_table(tmp_path):
+    path = _fake_gb(tmp_path, transl_table=2)        # 2 = vertebrate mitochondrial
+    with pytest.raises(ValueError, match="transl_table"):
+        probes.genbank_track(path, 0, 60)
+    ok = _fake_gb(tmp_path, transl_table=1)          # 1 = the standard code
+    assert len(probes.genbank_track(ok, 0, 60).seq) == 60
+
+
+def test_genbank_track_accepts_table_11_like_e_coli(tmp_path):
+    """Table 11 (bacterial) differs from the standard code only in which codons may
+    initiate translation, so every codon still encodes the same amino acid. E. coli's
+    own record declares 11, and refusing it would break every notebook in this repo."""
+    assert len(probes.genbank_track(_fake_gb(tmp_path, transl_table=11), 0, 60).seq) == 60
+    for bad in (2, 3, 4, 5):          # 2 vertebrate mito, 3 yeast mito, 4, 5 -- all reassign codons
+        with pytest.raises(ValueError, match="transl_table"):
+            probes.genbank_track(_fake_gb(tmp_path, transl_table=bad), 0, 60)
