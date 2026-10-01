@@ -832,3 +832,59 @@ input. That means its median `unchanged` share, over offsets 0–8, is below 0.5
 reported and not scored, because comparing a working block with one that ignores its input says nothing about
 learning. If no null passes, P28 stays **NOT SCORABLE**, and the round-6 design has to build a null that responds
 to its input.
+
+---
+
+## Round 5b outcomes (2026-09-30)
+
+Run on an 80 GB A100, 89/89 tests, smoke checks 8/8, block 0 restored after every scramble (asserted). Raw outputs:
+`results/round5b/`.
+
+### P29 — CONFIRMED on both clauses
+
+`motifs.receptive_field` reports **1 letter on 6 of 6 nulls** (predicted ≤ 2 letters on ≥ 4 of 6). With `k` pinned at
+the trained value of 9, **no null has a median best-word share of 0**: the six nulls sit at 0.90–0.94 (predicted
+≥ 0.10). The P28 zeros were the receptive-field artifact, as diagnosed.
+
+### P28 (rerun under the round-5b gate) — REFUTED
+
+Every null passed the responsiveness gate, so all six were scored.
+
+| | live channels | median best-word share | channels ≥ 0.6 | ≥ 0.8 |
+|---|---|---|---|---|
+| trained | 3,372 | **0.980** | 3,269 | 2,735 |
+| shuffle 0/1/2 | 4,096 | 0.940 | 3,958 / 3,939 / 3,938 | 3,148 / 3,072 / 3,072 |
+| gaussian 0/1/2 | 4,096 | 0.920 / 0.900 / 0.900 | 3,934 / 3,918 / 3,934 | 2,972 / 2,871 / 2,944 |
+
+Median gap trained − shuffled = **+0.040**, below the registered 0.05 refutation threshold, and **every null has more
+channels than the trained model at every cutoff from 0.5 to 0.9**. Both refutation conditions fire.
+
+By the registered wording, "block 0 is learned" is downgraded to **"training sharpens a selectivity the architecture
+already has"**, and round 4's 46-vs-0 contrast is an artifact. A weight-shuffled block 0 produces word-selective
+channels about as strongly as the trained one. **Round 4's finding 18 is refuted, not merely withdrawn.** Round 3's
+descriptive results about block 0 (all 64 words have detectors, start and stop codons are not special, 724 dead
+channels) are unaffected — they never depended on the null. The dead channels are now the one block-0 property that
+clearly separates trained from untrained: 724 of 4,096 in the trained model, 0 in every null.
+
+### Mechanism, and a correction to round 5's reading of it
+
+`receptive_field` compares outputs with `torch.allclose(atol=1e-3, rtol=1e-3)`. The trained block-0 cascade output
+has median magnitude **3.7e-4**; the nulls' is **5.6e-9**, about 65,000× smaller, so every comparison falls inside the
+absolute tolerance and the search stops at k=1.
+
+**The nulls are not input-insensitive.** Their relative sensitivity profile is nearly identical to the trained
+block's: median movement per changed letter 0.41–0.44 against the trained 0.47, non-zero for offsets 0–8 and exactly
+0 from offset 9, with under 1% of outputs unmoved. Round 5's entry claimed the scrambled block was "close to
+input-insensitive at bf16, a broken block rather than an untrained one". **That reading was wrong**; the block works,
+its outputs are merely tiny. Scrambling one tensor at a time (R5b.2) localises the magnitude collapse to
+`projections.weight`: scrambling it alone gives rf=1 and abs_mean 9.5e-9, while every other tensor leaves rf=9.
+
+Limitation of R5b.2 worth recording: the diagnostic measures the Hyena cascade's output, so tensors applied after the
+filter (`out_filter_dense`, the MLP) cannot change it, and their rows are identical to trained by construction rather
+than by finding.
+
+**Knock-on for P26.** Round 5 dismissed P26's shuffled-model leg (SE still took 62% of peaks) on the grounds that the
+fully scrambled model was "near-dead", citing small per-block divergences. That is the same style of argument that
+just proved wrong here. The P26 divergences are relative rather than absolute, so the argument is not refuted by this
+result, but it is no longer trustworthy without its own check. **P26's shuffled leg is reopened**: it needs the
+`block0_sensitivity` treatment applied across blocks before the leg can be dismissed or accepted.

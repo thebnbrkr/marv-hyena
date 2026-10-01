@@ -1469,6 +1469,80 @@ updated to cite them.
 | Block 0's word bank is learned | **withdrawn**: the null was enumerated over 1-2-letter inputs | untested, round 5b pending |
 | Far context travels through a particular operator | withdrawn (round 3b) | untestable as designed |
 
+## 2026-09-30: Round 5b — the first layer's word detectors are not learned
+
+Round 5b ran the one test round 5 could not score. It took about 20 minutes on an 80 GB A100: 89 tests, smoke checks
+8/8, block 0 restored after every scramble. Raw files in `results/round5b/`. Two outcomes, one of them a refutation
+of our own earlier finding.
+
+### Finding 29: the bug is confirmed, and it was not what we thought
+
+The diagnosis held. On all six scrambled copies of block 0, the code that asks "how many letters back can this layer
+see?" answered **1 letter**, so round 5 enumerated 1-letter inputs and no 3-letter word could appear. With the input
+length pinned to the trained answer of 9, every null scores 0.90–0.94 instead of 0.000.
+
+But the *reason* is not the one written in the round-5 entry. That entry said the scrambled block had stopped
+responding to its input — a broken block rather than an untrained one. **That was wrong.** The scrambled block
+responds almost exactly as the trained one does:
+
+| | median movement per changed letter | letters it responds to | outputs unmoved |
+|---|---|---|---|
+| trained | 0.47 | offsets 0–8, zero from 9 | 1.1% |
+| shuffled (3 seeds) | 0.41–0.42 | offsets 0–8, zero from 9 | 0.7% |
+
+What differs is **size, not sensitivity**. The trained cascade's output has median magnitude 3.7e-4; the nulls' is
+5.6e-9, about 65,000× smaller. The receptive-field check compares two outputs with an *absolute* tolerance of 1e-3.
+Against numbers near 5e-9, everything looks equal, so the search stops at one letter. Scrambling one weight tensor at
+a time puts the magnitude collapse in `projections.weight` alone; every other tensor leaves the measured reach at 9.
+
+*So the bug was a fixed absolute tolerance meeting a quantity whose scale is not fixed. The round-5 entry diagnosed
+the symptom correctly and the cause wrongly, and nothing in the run contradicted it, because both stories predict the
+same "1 letter" output. The thing that separated them was a measurement nobody had made yet.*
+
+### Finding 30: a scrambled first layer is as word-selective as the trained one (P28 refuted)
+
+With the enumeration fixed, the comparison round 4 and round 5 both meant to run finally ran. For each live channel:
+the largest share of its 50 strongest inputs that contain any single 3-letter word. 1.0 means every top input shares
+one word; about 0.3 would mean no word stands out.
+
+| | live channels | median share | channels ≥ 0.6 | channels ≥ 0.8 |
+|---|---|---|---|---|
+| trained | 3,372 | 0.980 | 3,269 | 2,735 |
+| weight-shuffled, 3 seeds | 4,096 | 0.940 | 3,938–3,958 | 3,072–3,148 |
+| Gaussian, 3 seeds | 4,096 | 0.900–0.920 | 3,918–3,934 | 2,871–2,972 |
+
+The trained model is ahead by **0.04** on the median, against the 0.20 the prediction asked for and the 0.05 below
+which it is refuted. And at every cutoff from 0.5 to 0.9, **every null has more selective channels than the trained
+model**. Both refutation conditions fire.
+
+**Round 4's finding 18 is refuted, not just withdrawn.** "A scrambled block 0 has zero word detectors against 46 when
+trained" was entirely the bug. The honest statement is the one the prediction pre-committed to: *training sharpens a
+selectivity the architecture already has.* A 9-letter gated convolution with random weights of the right scale already
+gives most of its channels a dominant 3-letter word. That is what the architecture does, not what Evo 2 learned.
+
+This is the outcome [Heap et al.](https://arxiv.org/abs/2501.17727) predicted in general: interpretability results on
+randomly initialised networks often score about as well as on trained ones. We cited that paper as the reason the null
+model was not optional, ran the null, and got an answer so clean it hid a bug for two rounds.
+
+**What survives about block 0.** Round 3's description is untouched, because none of it depended on the null: all 64
+three-letter words have detector channels (median 46), start and stop codons are not special, channels respond to
+letter combinations rather than single positions, and 724 of 4,096 channels are dead. The dead channels are now the
+one block-0 property that clearly separates trained from untrained — 724 in the trained model, **0 in every null**.
+Training in this layer looks less like building detectors and more like switching some off and setting the scale of
+the rest.
+
+### What this costs elsewhere
+
+**P26's shuffled leg is reopened.** Round 5 dismissed one leg of the SE-localisation check — a fully scrambled Evo 2
+still put 62% of peaks in SE blocks — by calling that model near-dead, citing small per-block divergences. That is the
+same argument that just failed here. Those divergences are relative rather than absolute, so this result does not
+refute the dismissal, but it is no longer trustworthy. Before that leg is accepted or dismissed, the per-block
+equivalent of `nullmodel.block0_sensitivity` has to be run on the fully scrambled model.
+
+*Lesson, and it is the third of its kind in two rounds: when a null model produces a suspiciously clean number,
+measure the null itself before believing the comparison. "Scrambled" is not a state we observed; it is a state we
+assumed. Round 5b's whole contribution is one function that looks at it.*
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.

@@ -69,9 +69,11 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 - **The reading frame (codon rhythm) lives in the MR (medium) layers**, not the SE (short) ones.
 - **Mutations are judged early and locally.** Their effect leaves the mutated position within blocks 0–7.
 - **"Long" LI filters are mostly short** (4–7 letters), with a few long-reaching channels.
-- **Block 0 is a generic bank of 3-letter-word detectors.** Start and stop codons aren't special, and 18% of its
-  channels are dead. Whether the bank is *learned* is untested again: the weight-shuffled null in rounds 4 and 5
-  was enumerated over 1–2-letter inputs (a bug, now guarded), which forces its score to 0. Round 5b reruns it.
+- **Block 0's word detectors are architectural, not learned.** It gives detector channels to all 64 three-letter
+  words, start and stop codons aren't special, and 724 of 4,096 channels are dead. But a weight-shuffled block 0 is
+  *as* word-selective as the trained one (median best-word share 0.94 vs 0.98, and more channels above every cutoff
+  from 0.5 to 0.9), so round 4's "46 detectors vs 0" was a measurement bug and is **refuted** (round 5b). The dead
+  channels are the one property that separates trained from random: 724 vs 0.
 - **Evo 2 reacts to amino-acid changes beyond letter statistics, for the two amino acids where this can be tested.**
   With the swap type held equal, missense beats silent at the same letter at 72% of 150 sites; with swap type
   pushing the other way, 80%. Swap type alone, with no protein change, gives 55% (round 5; only Ile and Arg allow
