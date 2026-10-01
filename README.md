@@ -74,6 +74,9 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
   *as* word-selective as the trained one (median best-word share 0.94 vs 0.98, and more channels above every cutoff
   from 0.5 to 0.9), so round 4's "46 detectors vs 0" was a measurement bug and is **refuted** (round 5b). The dead
   channels are the one property that separates trained from random: 724 vs 0.
+- **Evo 2 tracks what a codon *means* while not tracking which synonymous codon is *preferred*.** The second half is
+  [Mathur & Sachidanandam 2026](https://doi.org/10.64898/2026.03.10.710786) (wobble predictions near-random against
+  codon-usage tables); the first half is ours, below.
 - **Evo 2 reacts to amino-acid changes beyond letter statistics, for the two amino acids where this can be tested.**
   With the swap type held equal, missense beats silent at the same letter at 72% of 150 sites; with swap type
   pushing the other way, 80%. Swap type alone, with no protein change, gives 55% (round 5; only Ile and Arg allow

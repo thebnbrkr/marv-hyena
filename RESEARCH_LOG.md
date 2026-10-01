@@ -1720,6 +1720,83 @@ channels only (3,372 of 4,096), while the nulls have no dead channels to exclude
 tie-ordered top-k lists, so including them would most likely *lower* the trained median — which would make the
 refutation stronger, not weaker. That direction is reasoning, not measurement, and a rerun could settle it.
 
+## 2026-10-01: Mathur & Sachidanandam, read in full — the closest paper, and not a collision
+
+[Benchmarking DNA Foundation Models: Biological Blind Spots in Evo2 Variant-Effect Prediction](https://doi.org/10.64898/2026.03.10.710786)
+(bioRxiv, posted 11 March 2026, not peer reviewed; Horace Mann School and New York Medical College). Read all 22
+pages. This is the paper the second review cited for the transversion result, and it is the closest existing work to
+round 5's biology. It does **not** pre-empt anything here, and it changes three things.
+
+### What it is
+
+A **black-box behavioural benchmark**. Everything runs through Evo 2's hosted API (`/generate`, `/forward`), scoring
+variants by mean log-likelihood. No layers, no ablations, no operators, no internals of any kind — their Conclusion
+asks for exactly that as future work (see below). Mitochondrial DNA is the test bed: compact, intron-free, and
+exhaustively annotated. Their findings:
+
+| test | result |
+|---|---|
+| Codon usage bias in wobble predictions | **Not internalised.** Preferred codon chosen at 24.4% of 966 positions, against 25% for a coin flip; mean JSD 0.254 |
+| Mitochondrial start/stop codon reassignment | Not respected: all 26 valid mito start-preserving variants called pathogenic |
+| Zero-shot mitochondrial pathogenicity | AUROC 0.896, balanced accuracy 87.6%, but APOGEE2 (supervised) beats it on AUROC, specificity and auPRC |
+| Transversions vs transitions | Transversions score ~1.9× more negative (mean ΔL −0.0113 vs −0.0060) |
+| tRNA cyclic permutation (a null manipulation) | Sensitivity collapses **65.8% → 5.1%** with the tRNA sequence unchanged |
+| Gene completion across 10 species | 86.2% mean, but it does not track mutational constraint; the most constrained complex completes worst |
+| NUMTs | Evo 2 prefers the mitochondrial allele at divergence sites: it treats the pseudogene as authentic mtDNA |
+| PhyloP conservation | ρ = 0.77 overall, but conservation peaks do not line up with likelihood peaks |
+
+### 1. Their transversion result is the one ours corrects, and it is weaker than it reads
+
+The second review was right that their variant set spans non-coding regions — their own Figure 3 stratifies into
+D-loop, RNA genes, synonymous and missense. Two further things the numbers show:
+
+- The comparison rests on **46 transversions against 727 transitions**. Transversions are 6% of the set.
+- It is **unmatched and unpaired**: different positions, different regions, benign and pathogenic pooled, compared as
+  two group means rather than at the same site.
+
+So their effect could be carried by which regions their 46 transversions happen to fall in. Our `fourfold` design
+asks the same question with 150 **paired** comparisons at the same position, with the protein held constant, and
+finds **54.7% (p = 0.29)**. That is a direct, citable refinement: *within matched coding sites, substitution type
+alone has at most a modest effect.* It does not contradict their measurement; it shows what is left of it once
+position and coding consequence are held fixed. Our round-4 numbers are the cautionary half of the same story —
+unmatched, our own version of this comparison gave 68.9% and looked like biology.
+
+### 2. Their codon-usage finding is convergent support for our rarity control, and sharpens our claim
+
+Round 5's biggest worry was that codon rarity drove the amino-acid result, since a rare codon is surprising in
+itself. The re-analysis found rarity pushing *against* the result at 266 of 300 sites. Their paper explains why that
+confound is so weak: **Evo 2 does not appear to track codon usage frequencies at all** — its wobble predictions are
+near-random against empirical codon frequencies.
+
+Put together, the two results are a dissociation worth stating, and only someone holding both can state it:
+
+> Evo 2 responds to **what a codon means** (a substitution changing the amino acid disturbs it more than a silent one
+> at the same position, with substitution type controlled) while **not tracking which synonymous codon is preferred**
+> (wobble predictions near-random against codon-usage tables).
+
+Those are compatible — knowing the amino acid is not knowing codon frequencies — and together they are more
+interesting than either alone.
+
+### 3. They name our work as the extension of theirs
+
+From their Conclusion: *"Mechanistic interpretability of Evo2 embeddings may clarify which biological features are
+encoded and which are absent."* That is a second published gap statement pointing at this project, alongside the
+bio-foundation-model review already cited. Their framing is **what is missing**; ours is **where things happen**.
+Complementary, and the pairing is a natural way to motivate a paper.
+
+### One strategic warning
+
+Their paper is a benchmarking framework built on **null manipulations** — the tRNA cyclic permutation is exactly the
+kind of negative control this log keeps arguing for. So the "controls toolkit for claims about DNA models" idea in
+*Where this could go* is **no longer an empty niche**: someone is publishing in it, from the behavioural side. The
+differentiator has to be the internals — operator-level ablation, per-block divergence, weight nulls — not the
+controls framing by itself.
+
+### No overlap at all
+
+Nothing in their paper touches operators, layers, ablation, the write-magnitude funnel, copying, attention, the
+load-bearing map, or block 0. Different question, different method, same model.
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.
