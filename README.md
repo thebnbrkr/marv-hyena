@@ -65,13 +65,16 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 - **The reading frame (codon rhythm) lives in the MR (medium) layers**, not the SE (short) ones.
 - **Mutations are judged early and locally.** Their effect leaves the mutated position within blocks 0–7.
 - **"Long" LI filters are mostly short** (4–7 letters), with a few long-reaching channels.
-- **Block 0 is a generic bank of 3-letter-word detectors, very likely learned.** Start and stop codons aren't
-  special, and 18% of its channels are dead. A weight-shuffled block 0 produces zero detector channels against a
-  median of 46 per word — but through a single 80% cutoff; round 5 (P28) measures it without one.
-- **MR carries the reading frame.** Whether Evo 2 also represents *amino acids* is under review: round 4's 68.9%
-  (missense beats silent at the same site) is confounded by letter type — on the 17 sites where both changes were
-  transversions, missense won 8/17 — and its "peaks in SE blocks" came from the argmax of a ratio. Round 5
-  (P25, P26) tests both properly.
+- **Block 0 is a generic bank of 3-letter-word detectors.** Start and stop codons aren't special, and 18% of its
+  channels are dead. Whether the bank is *learned* is untested again: the weight-shuffled null in rounds 4 and 5
+  was enumerated over 1–2-letter inputs (a bug, now guarded), which forces its score to 0. Round 5b reruns it.
+- **Evo 2 reacts to amino-acid changes beyond letter statistics, for the two amino acids where this can be tested.**
+  With the swap type held equal, missense beats silent at the same letter at 72% of 150 sites; with swap type
+  pushing the other way, 80%. Swap type alone, with no protein change, gives 55% (round 5; only Ile and Arg allow
+  these designs). The difference shows up in SE layers at 85% of sites when the amino acid changes, and at 11% when
+  it doesn't.
+- **A premature stop disturbs the model far more than a missense change** at the same letter: 92–93% of 150 sites,
+  whichever swap type each change is.
 - **The funnel defeats gradient attribution.** Integrated gradients at block 30's input attributes zero (a single
   step out of 512 carries ~99% of the function's range). Causal ablation instead reaches all the way back to
   block 0 — so block 30 reads from the whole network, and anything measuring it has to be causal.
@@ -80,7 +83,8 @@ predictions and outcomes are in [`PREDICTIONS.md`](PREDICTIONS.md).
 - **Six load-bearing layers** (L0, L1, L4, L9, L29, L30); every other single layer is individually expendable.
 - **Round 3 replicated bit-identically** on a different A100 SKU and CUDA version (round 3b).
 - **Review, 2026-09-25**: three round-4 claims failed a control they should have faced from the start (letter type,
-  a ratio statistic, a hard cutoff). The reasoning is in `RESEARCH_LOG.md`; the tests are round 5.
+  a ratio statistic, a hard cutoff). Round 5 (2026-09-30) ran those controls: the amino-acid and SE claims held up,
+  and the block-0 null turned out to be broken. The reasoning is in `RESEARCH_LOG.md`.
 
 **How this compares to what the architecture paper claims.** StripedHyena 2
 ([arXiv 2503.01868](https://arxiv.org/html/2503.01868v1)) asserts operator specialization in prose, sourced to prior
@@ -112,7 +116,10 @@ Caveats we hold ourselves to:
 - **Round 4** (null model and biology):
   [`notebooks/marv_hyena_round4_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round4_colab.ipynb).
   Needs no new data — E. coli and the GenBank annotations already in the repo.
-- **Round 5** (controls that could explain round 4 away): `notebooks/marv_hyena_round5_colab.ipynb`.
+- **Round 5** (controls that could explain round 4 away): `notebooks/marv_hyena_round5_colab.ipynb`. Results in
+  `results/round5/`.
+- **Round 5b** (block 0's null model, done properly):
+  [`notebooks/marv_hyena_round5b_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round5b_colab.ipynb).
 
 
 Open [`notebooks/marv_hyena_colab.ipynb`](notebooks/marv_hyena_colab.ipynb) with the badge above. Choose

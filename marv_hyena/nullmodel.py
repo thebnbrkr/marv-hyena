@@ -78,6 +78,18 @@ def _tensors(hm: HyenaModel, block: int, include_norms: bool):
     return out
 
 
+def _qualname(hm: HyenaModel, block: int, mod, name: str) -> str:
+    for path, m in hm.block(block).named_modules():
+        if m is mod:
+            return f"{path}.{name}" if path else name
+    return name
+
+
+def tensor_names(hm: HyenaModel, block: int, include_norms: bool = False) -> list[str]:
+    """The tensors `random_weights` touches in `block`, by dotted name."""
+    return [_qualname(hm, block, mod, name) for mod, _, name in _tensors(hm, block, include_norms)]
+
+
 # Vortex keeps some learned Hyena parameters as buffers rather than Parameters.
 # Only these are randomized; everything else buffered is cached/derived state.
 _LEARNED_BUFFERS = {"h", "D", "bias", "filter", "short_filter_weight", "log_poles", "residues"}
@@ -85,13 +97,16 @@ _LEARNED_BUFFERS = {"h", "D", "bias", "filter", "short_filter_weight", "log_pole
 
 @contextmanager
 def random_weights(hm: HyenaModel, blocks, mode: str = "shuffle", seed: int = 0,
-                   include_norms: bool = False):
+                   include_norms: bool = False, only: str | None = None):
     """Temporarily replace the weights of `blocks` with random ones.
 
     include_norms=False leaves LayerNorm/RMSNorm scales alone by default:
     scrambling them changes the scale the block writes at, which shows up as
     "the model broke" rather than "the detectors were not learned". Set True
     for a fully untrained block.
+
+    only="<name>" scrambles a single tensor (a name from `tensor_names`), to
+    find which one a null's behaviour comes from.
 
     Yields the number of tensors replaced.
     """
@@ -103,6 +118,8 @@ def random_weights(hm: HyenaModel, blocks, mode: str = "shuffle", seed: int = 0,
     try:
         for b in blocks:
             for mod, kind, name in _tensors(hm, b, include_norms):
+                if only is not None and _qualname(hm, b, mod, name) != only:
+                    continue
                 store = mod._parameters if kind == "param" else mod._buffers
                 t = store[name]
                 cur = t.data if kind == "param" else t
@@ -150,4 +167,49 @@ def word_count_summary(ranks: list[dict], key: str = "controlled") -> dict:
         # word looks alike" (low) from "some words are special" (high).
         "cv": float(v.std() / v.mean()) if v.mean() else float("nan"),
         "max_over_median": float(v.max() / np.median(v)) if np.median(v) else float("nan"),
+    }
+
+
+@torch.no_grad()
+def block0_sensitivity(hm: HyenaModel, k: int = 9, n: int = 256, length: int = 32, seed: int = 0) -> dict:
+    """Does block 0 respond to its input at all? Round 5 (P28) found that a
+    scrambled block 0 made `receptive_field` report 1-2 letters, so the null
+    was enumerated over inputs too short to contain a 3-letter word.
+
+    For `n` random sequences, the last-position output of block 0's Hyena
+    operator (the thing `motifs.enumerate_block0` ranks), per channel:
+    - abs_mean:   typical size of the output
+    - rel_spread: std across inputs / abs_mean. Near 0 = the output is a
+                  constant the input barely moves (a broken block, not an
+                  untrained one).
+    - reach[d]:   mean |change| when only the letter d positions back is
+                  changed, / std across inputs. A trained 9-letter block is
+                  non-zero for d < 9 and zero beyond.
+    - unchanged[d]: share of (input, channel) pairs whose output did not move
+                  at all when that letter changed (bf16 swallowing the change).
+    Medians over channels. Works on whatever weights are loaded.
+    """
+    from .motifs import BASES, _block0_filter_out
+
+    g = torch.Generator().manual_seed(seed)
+    letters = torch.tensor([ord(b) for b in BASES])
+    digits = torch.randint(0, 4, (n, length), generator=g)
+    ids = letters[digits].to(hm.device)
+    y = _block0_filter_out(hm, ids)[:, -1].float()  # (n, H)
+    abs_mean = y.abs().mean(0)
+    std = y.std(0)
+    reach, unchanged = [], []
+    for d in range(k + 3):
+        alt = digits.clone()
+        alt[:, -1 - d] = (alt[:, -1 - d] + torch.randint(1, 4, (n,), generator=g)) % 4
+        y2 = _block0_filter_out(hm, letters[alt].to(hm.device))[:, -1].float()
+        delta = (y2 - y).abs()
+        reach.append(float((delta.mean(0) / std.clamp_min(1e-30)).median()))
+        unchanged.append(float((delta == 0).float().mean()))
+    return {
+        "abs_mean": float(abs_mean.median()),
+        "rel_spread": float((std / abs_mean.clamp_min(1e-30)).median()),
+        "reach": reach,
+        "unchanged": unchanged,
+        "finite": bool(torch.isfinite(y).all()),
     }

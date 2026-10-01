@@ -174,6 +174,11 @@ def best_word_share(md, length: int = 3, n_top: int = 50, live: np.ndarray | Non
     """
     import itertools
 
+    if md.k < length:
+        # Round 5's null: enumerate_block0 re-measured the receptive field on
+        # scrambled weights, got 1-2 letters, and every share came out 0.
+        raise ValueError(f"enumeration used {md.k}-letter inputs; cannot count {length}-letter words. "
+                         "Pass the trained model's k to enumerate_block0.")
     words = ["".join(p) for p in itertools.product("ACGT", repeat=length)]
     out = []
     for c, kmers in enumerate(md.top_kmers):

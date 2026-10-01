@@ -1310,6 +1310,108 @@ question: "what else would produce this number?"*
 
 ---
 
+## 2026-09-30: Round 5 results — the letter-type worry mostly did not hold up
+
+Round 5 ran on 2026-09-25 (80 GB A100, commit `1f2b29d`, about 1.5 hours after its predictions were committed) and
+is recorded here on 2026-09-30. Smoke checks 8/8, 83 tests, the same six load-bearing layers and the block-30
+bottleneck for the fourth run in a row. 150 sites per design from the whole E. coli genome. The formal record is in
+`PREDICTIONS.md` under "Round 5 outcomes"; raw files are in `results/round5/`.
+
+**The short version.** The review of round 4 worried that "Evo 2 knows amino acids" was really "Evo 2 is surprised
+by rare kinds of letter swaps" (transversions). Round 5 held the swap type fixed, and then set it against the
+hypothesis. The amino-acid effect stayed: the review's worry was mostly wrong. Two things weaken that good news: the
+test only exists for two amino acids, and the regression we registered turned out unable to answer the question.
+Separately, a bug was found that undoes round 4's "block 0 is learned" result until it is rerun.
+
+### Finding 25: with letter type controlled, a protein change still disturbs Evo 2 more
+
+Every comparison changes **the same letter** of DNA two ways and asks which change disturbs the model more (a more
+negative score for the next 200 letters).
+
+| design | change A | change B | B disturbs more | what it means |
+|---|---|---|---|---|
+| round 4's sites, rerun | silent, common swap | missense, rare swap | **69.2%** | round 4's 68.9% reproduces |
+| four-fold sites | silent, common swap | silent, rare swap | **54.7%** (p = 0.29) | swap type alone barely matters when the protein does not change |
+| outside genes | common swap | rare swap | 60.7% (p = 0.01) | a small swap-type effect |
+| `matched` | silent, rare swap | missense, rare swap | **72.0%** (p = 7e-8) | protein change wins with swap type equal |
+| `flipped` | silent, rare swap | missense, common swap | **80.0%** (p = 6e-14) | protein change wins with swap type pushing the other way |
+
+Read across the rows. If swap type were the explanation, the four-fold row would be near 69% and `matched` near 50%.
+The opposite happened. P23 is **refuted**, and by its own registered clause, letter type is not a live explanation
+for round 4's result.
+
+Three limits, all real:
+- **Only isoleucine and arginine.** These designs need a silent change and a missense change of the same swap type at
+  the same letter, and the genetic code only allows that for these two amino acids. So the result is about two amino
+  acids, not twenty.
+- **Isoleucine's missense change always makes ATG**, which also means "start a protein here". Isoleucine sites still
+  win (65–69%), but less strongly than arginine (93–100%), and in one `flipped` subgroup (ATA → ATC vs ATG, 23 sites)
+  missense wins only 43%.
+- **The regression we registered could not decide anything.** P25 also asked for a pooled regression whose
+  "missense" coefficient had to be negative. It came out **positive**, so P25 is formally "in between". The design was
+  the problem. Inside each design, "is it missense" and "is it a rare swap" never vary, so the regression just
+  draws a straight line through four averages and extrapolates to a case no design contains. Its other coefficient
+  claims rare swaps are *less* disruptive, which the direct rows above contradict. Refit on the direction of each
+  difference only, the missense coefficient turns negative (−0.17, interval −0.36 to +0.02). The mistake was ours,
+  made when we wrote the prediction down: we registered a statistic before checking that the designs could feed it.
+
+### Finding 26: the SE layers light up when the protein changes, and not otherwise
+
+Round 4 said the missense/silent difference shows up most in the short SE layers (blocks 7, 11, 14). The review
+said that came from a statistic that favours small denominators. Round 5 ranked layers by plain *difference* and
+kept every layer's numbers.
+
+| what changed | share of sites whose biggest gap is in an SE layer |
+|---|---|
+| the amino acid (round 4's sites) | **85%** |
+| the amino acid, swap type fixed (`matched`) | 86% |
+| nothing about the protein (four-fold) | **11%** |
+| no gene at all | 31% |
+| (SE layers are 9 of 32, i.e. 28% by chance) | |
+
+Same model, same statistic: SE layers carry the difference when the protein changes and not when it doesn't. That
+is the strongest localisation evidence so far. The review's prediction (P26: the share would drop below 60%) failed.
+Its last check, that a fully scrambled model should *not* also favour SE (it gave 62%), failed too. But that
+scrambled model is close to dead: its layers barely react to a letter change (about 0.01, against 0.1–0.8 when
+trained). So that check had nothing to measure.
+
+### Finding 27: a premature stop disturbs Evo 2 6–9× more than an ordinary protein change
+
+A change that makes a "stop" codon (cutting the protein short) beat an ordinary missense change at the same letter at
+**93%** of 150 sites, and at **92%** when swap type argued against the stop. Median effect −21.9 vs −2.5 nats. P27
+**confirmed**. The behaviour itself is in the Evo 2 paper. New here is that it survives a same-letter, swap-type
+controlled comparison.
+
+### Finding 28: "block 0 is learned" was measured with a bug, and is untested again
+
+P28 compared the first layer's word detectors with copies whose weights were scrambled. Trained scored 0.98 and every
+scrambled copy scored exactly **0.000**. That looked like a clean win, but 0 is impossible: every 9-letter input
+contains some 3-letter word, so the lowest possible score is 1/64.
+
+The cause is a software bug. Before listing all inputs, the code measures how many letters back block 0 can see.
+It did that on the *scrambled* weights, decided the answer was 1–2 letters, and listed inputs 1–2 letters long, too
+short to contain any 3-letter word. Think of a unit test that silently ran on an empty fixture and passed. The check
+uses a fixed tolerance of 0.001; the scrambled block's output either barely moves or is small. Round 4's "46
+detectors vs 0" (finding 18) went through the same code. **Finding 18 is withdrawn until rerun**: not false,
+untested.
+
+Fixed in code: `controls.best_word_share` now refuses inputs shorter than the word it counts. Round 5b
+(`notebooks/marv_hyena_round5b_colab.ipynb`, predictions P29 and a gated P28 rerun registered first) pins the input
+length at 9, checks with `nullmodel.block0_sensitivity` whether each scrambled block responds to its input at all,
+and scrambles one weight tensor at a time to find which one breaks it.
+
+### What changes in the picture
+
+- **Upgraded:** "Evo 2 reacts to amino-acid changes beyond letter statistics" — for Ile and Arg, with letter type
+  controlled both ways. "SE layers are where it shows up" — supported against the no-protein-change control.
+- **Confirmed:** stops ≫ missense.
+- **Withdrawn pending 5b:** block 0's word bank is learned.
+- **Lesson:** two of this round's problems were in our own tools, not the model. One was a registered statistic that
+  could not be identified from the designs. The other was a helper that silently re-measured a setting on the wrong
+  weights. Both passed every test, because the tests passed the setting in explicitly and the notebook did not.
+  *Before registering a statistic, run it on fake data where the answer is known; before trusting a null, check it
+  still responds to its input.*
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.

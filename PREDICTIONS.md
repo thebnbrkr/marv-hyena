@@ -712,3 +712,123 @@ has more channels than every null at every cutoff from 0.5 to 0.9.
 **Refuted if:** the median gap is < 0.05, or any null has at least as many channels as the trained model at cutoff
 0.6 — then "block 0 is learned" is downgraded to "training sharpens a selectivity the architecture already has",
 and the 46-vs-0 contrast is reported as a cutoff effect.
+
+---
+
+## Round 5 outcomes (run 2026-09-25, recorded 2026-09-30)
+
+Run on an 80 GB A100 from commit `1f2b29d` (`main`), about 1.5 hours after P23–P28 were committed. Smoke checks 8/8,
+83/83 tests, every cell clean, load-bearing `[0,1,4,9,29,30]` and bottleneck `[30]` for the fourth consecutive run.
+150 sites per design from the whole genome, round 4's own 120 sites, and 60 sites through the shuffled model. Raw
+outputs: `results/round5/`. Verdicts below apply each prediction's registered thresholds as written (also computed
+by `controls.score_round5`); the reading after each verdict is not part of the prediction.
+
+### P23 — REFUTED
+
+Four-fold sites, silent transition vs silent transversion: the transversion was more disruptive at **54.7%** (82/150,
+95% CI 47–62%, sign test p = 0.29). Predicted ≥ 60%; refuted at ≤ 55%. By the registered clause, **letter type alone
+is not a live explanation for P21**. When the protein does not change, swapping a transition for a transversion
+barely moves the model (median paired difference −0.10 nats).
+
+### P24 — NEITHER (one clause met, one missed)
+
+Outside genes the transversion was more disruptive at **60.7%** (91/150, CI 53–68%, p = 0.011): ≥ 55% is met. But
+the rate is 6 points **above** four-fold sites rather than below, so the "less than in genes" clause fails. It is not
+refuted (that needs ≤ 50%, or more than 10 points above P23). Letter type matters a little outside genes and less
+inside them, the reverse of the predicted ordering.
+
+### P25 — IN BETWEEN by the registered rule; the sign tests are met strongly, the regression clause is not identifiable
+
+| clause | result | predicted |
+|---|---|---|
+| `matched`: missense more disruptive, both arms transversions | **72.0%** (108/150, CI 64–79%, p = 6.9e-8) | ≥ 60%, p < 0.05 |
+| `flipped`: missense more disruptive, letter type pushing against it | **80.0%** (120/150, CI 73–86%, p = 6e-14) | ≥ 50% |
+| pooled regression `d_missense` | **+0.924** (95% CI +0.222 .. +1.689) | negative, CI entirely below 0 |
+
+The regression clause fails in the opposite direction, so the rule gives "in between" and that is the recorded
+verdict. A post-hoc check of the regression (not a re-scoring) shows it could not have decided P25 either way.
+`d_missense` and `d_transversion` are constant within each design, so the pooled fit is a straight line through
+four design means: (1, +1) round4, (1, 0) matched, (1, −1) flipped, (0, +1) fourfold and noncoding. Its intercept
+extrapolates to (0, 0), which no design contains. The fit also gives `d_transversion` = +1.77 ("transversions are
+*less* disruptive"), which the direct four-fold and noncoding comparisons contradict. Refit on the sign of each
+paired difference instead of its size, `d_missense` is −0.17 (CI −0.36 .. +0.02). The design flaw was ours, at
+registration.
+
+Scope: these designs exist for only two amino acids. Within them, missense wins at Ile ATC/ATT → ATA vs **ATG**
+(65%, p = 0.02; 69%, p = 0.004) and at Arg first-letter sites (CGA, CGG: 93–100%). In `flipped`, Arg CGG → AGG vs
+TGG (Trp) wins 96% of 67 sites, while Ile ATA → ATC vs ATG wins only 43% of 23 (p = 0.68). The Ile missense arm is
+always ATG, which is also the start codon. Codon rarity works *against* the hypothesis at Ile, because the silent
+arm lands on ATA, a rare codon, yet missense still wins.
+
+### P26 — NOT CONFIRMED; the refutation clause holds on two of its three legs
+
+The review predicted that SE's share of peaks would fall below 60% once blocks are ranked by difference. It did not.
+
+| design (ranked by `diff`) | SE share of peaks | modal block |
+|---|---|---|
+| round4 (amino acid changes) | **85.0%** | 7 |
+| matched (amino acid changes, letter type fixed) | 86.0% | 7 |
+| fourfold (no amino-acid change) | **11.3%** | 1 |
+| noncoding (no gene) | 30.7% | 1 |
+| round4 sites, all weights shuffled | 61.7% | 14 |
+
+SE base rate 9/32 = 28.1%. Refutation (finding 19's localisation survives) needed round4 ≥ 80% ✓, fourfold ≤ 50% ✓
+and shuffled ≤ 43% ✗. The leg that fails rests on a near-dead model: through the shuffled network, the median
+per-block divergence is about 0.01 (trained: 0.1–0.8), and block 0 shows no divergence at all. Recorded as not
+confirmed and not refuted. In the trained model, SE peaks appear when the amino acid changes and not when it does
+not, which is the comparison the shuffled leg was meant to back up.
+
+### P27 — CONFIRMED
+
+The stop was more disruptive than a missense change at the same site at **93.3%** of `stop_matched` sites (140/150,
+p = 2e-30) and **92.0%** of `stop_flipped` sites (138/150, p = 3e-28). Predicted ≥ 90% and ≥ 85%. Median effect:
+stop −21.9 vs missense −2.5 nats (matched), −16.9 vs −2.7 (flipped). Letter type set against the stop changes
+nothing. The behaviour is in the Evo 2 paper. New here is that it survives a same-site, letter-type-controlled
+comparison at 150 sites each.
+
+### P28 — NOT SCORABLE: the null enumeration is degenerate (measurement artifact)
+
+As run, every threshold is met: trained median best-word share 0.98 against **0.000** for all six nulls, and 0
+channels at every cutoff. But 0.000 is impossible for a real 9-letter enumeration. Every 9-letter input contains a
+3-letter word, so a channel's best-word share is at least 1/64. A share of exactly 0 means the null's top inputs
+were **shorter than 3 letters**.
+
+Cause: `motifs.enumerate_block0` re-measures block 0's receptive field on whatever weights are loaded. On scrambled
+weights, `receptive_field` (tolerance 1e-3) declares 1–2 letters, so the null was enumerated over 1–2-letter inputs.
+The round-4 null (P19) went through the same code path and reported the same exact zeros. The rehearsal on
+2026-09-30 reproduces it (shuffled median 0.000). Corroboration from the shuffled-model rows: the scrambled block 0's
+output does not move at all when a letter changes. The scrambled block is close to input-insensitive at bf16, which
+is a broken block rather than an untrained one.
+
+Consequence: **P19's outcome (round 4: "block 0's motif bank is learned") is unsupported** until the null is rerun
+with the receptive field pinned to the trained 9 letters and a null block that still responds to its input. This
+does not make the claim false; it makes it untested.
+
+---
+
+## Round 5b predictions (registered 2026-09-30, before running `notebooks/marv_hyena_round5b_colab.ipynb`)
+
+Round 5b redoes only the block-0 null that P28 could not score. Two fixes: the enumeration's input length is pinned
+to the trained receptive field (9 letters) instead of being re-measured on scrambled weights, and
+`nullmodel.block0_sensitivity` checks first whether each null block responds to its input at all. Already known when
+these were written: the trained median best-word share is 0.98 (round 5), and the trained tiny test model's block 0
+has a reach of exactly 9 letters.
+
+### P29: the P28 zeros are the receptive-field artifact
+
+**Test:** R5b.1 and R5b.3. `motifs.receptive_field` on each null (3 shuffle and 3 Gaussian seeds), then
+`best_word_share` with `k` pinned at 9.
+
+**Prediction:** `receptive_field` reports ≤ 2 letters on at least 4 of the 6 nulls, and with `k` pinned at 9 no
+null's median best-word share is 0 (each is ≥ 0.10).
+
+**Refuted if:** `receptive_field` reports ≥ 9 letters on every null, or a pinned-k null still has a median share of
+0. Either would mean the zeros come from somewhere else.
+
+### P28, rerun under a gate fixed now
+
+P28's text and thresholds are unchanged. The gate is new: a null block counts toward P28 only if it responds to its
+input. That means its median `unchanged` share, over offsets 0–8, is below 0.5. A null that fails the gate is
+reported and not scored, because comparing a working block with one that ignores its input says nothing about
+learning. If no null passes, P28 stays **NOT SCORABLE**, and the round-6 design has to build a null that responds
+to its input.

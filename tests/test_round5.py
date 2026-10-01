@@ -8,6 +8,7 @@ import random
 
 import numpy as np
 import pytest
+import torch
 
 from marv_hyena import codons, controls, genome, motifs, nullmodel, probes
 
@@ -330,3 +331,35 @@ def test_score_round5_edges():
     b0 = {"trained": {"median": 0.9, "sweep": sw(100, 90, 80, 70, 60)},
           "shuffle0": {"median": 0.87, "sweep": sw(100, 95, 30, 20, 10)}}
     assert controls.score_round5(*_score_inputs(block0=b0))["P28"]["verdict"] == "REFUTED"
+
+
+# ---------------------------------------------------------------- P28's artifact
+def test_best_word_share_refuses_inputs_shorter_than_the_word(hm):
+    """Round 5's null came out at exactly 0 because block 0 was enumerated over
+    1-2-letter inputs; a 3-letter word can never appear in those."""
+    md = motifs.enumerate_block0(hm, k=2, n_top=5)
+    with pytest.raises(ValueError, match="2-letter inputs"):
+        controls.best_word_share(md, length=3, n_top=5)
+
+
+def test_only_scrambles_one_named_tensor(hm, seq):
+    names = nullmodel.tensor_names(hm, 0)
+    assert len(names) == len(set(names)) > 1
+    before = {n: p.detach().clone() for n, p in hm.block(0).named_parameters()}
+    with nullmodel.random_weights(hm, 0, seed=0, only=names[0]) as n_changed:
+        now = dict(hm.block(0).named_parameters())
+        changed = [n for n in before if not torch.equal(before[n], now[n])]
+    assert n_changed == 1 and changed == [names[0]]
+    assert all(torch.equal(before[n], p) for n, p in hm.block(0).named_parameters())
+
+
+def test_block0_sensitivity_sees_the_receptive_field(hm):
+    """The trained tiny block 0 reaches back k-1 letters and no further, so
+    reach[d] is clearly positive inside the field and float rounding (~1e-7)
+    outside it."""
+    k = motifs.receptive_field(hm)
+    s = nullmodel.block0_sensitivity(hm, k=k, n=64)
+    assert s["finite"] and s["rel_spread"] > 0
+    assert all(r > 0.05 for r in s["reach"][:k])
+    assert all(r < 1e-5 for r in s["reach"][k:])
+    assert all(u == 0.0 for u in s["unchanged"][:k])
