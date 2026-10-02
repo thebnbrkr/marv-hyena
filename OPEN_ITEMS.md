@@ -273,6 +273,60 @@ go.
 
 ---
 
+# GROUP 2c — Following the funnel result (added 2026-10-02)
+
+The 7B weight check turned the funnel from an observation into a candidate mechanism, and that makes
+three experiments worth more than anything else on this list. They are ordered by cost.
+
+## What is established and what is missing
+
+**Established:** everything downstream of the funnel's write has weights 10³–10⁴ below its siblings, in
+7B, 20B and 40B, with the boundary falling *inside* the funnel block — before the write, normal; after
+it, gone.
+
+**Missing:** direction of cause. The weights are equally consistent with "the funnel formed and starved
+what followed" and with "those parts were quiet first, and the funnel is what remained". Only evidence
+from *during* training separates them.
+
+36. **Compare the four A100-reachable 7B checkpoints, weight-only.** *re-analysis, free, a CPU runtime.*
+    `evo2_7b_base` (8K context), `evo2_7b` (1M, context-extended from base), `evo2_7b_262k`, and
+    `evo2_7b_microviridae` (fine-tuned from base). These are **four points on one training lineage**,
+    which is the closest thing to a trajectory that has been publicly released. Run
+    `scripts/check_checkpoint.py` on each and compare the suppression ratio at block 30's MLP and block
+    31's attention.
+    - If the suppression is *deeper* in the context-extended models than in `7b_base`, it accumulated
+      with further training — which is what starvation predicts and the alternative does not.
+    - If it is already at full depth in `7b_base`, it formed during pretraining and these checkpoints
+      cannot separate the hypotheses.
+    - `7b_microviridae` adds a second axis: does fine-tuning on new data revive a starved block, or
+      leave it starved?
+    **This is the single highest-value thing available, and it costs nothing but download time.**
+37. **Ablate everything downstream of the funnel at once.** *1 GPU run.* Individually, each downstream
+    block is expendable — that is already measured. Removing them *all together* asks whether the model
+    is effectively shallower than it looks. In the 40B that would mean 26 of 50 blocks; if accuracy is
+    unchanged, the released 40B is doing the work of a 24-block model, which is a capability claim and
+    not only an interpretability one.
+38. **Watch a funnel form.** *the real causation test.* Train small StripedHyena models from scratch,
+    checkpoint often, and record per-block write magnitudes throughout. If the write-magnitude spike
+    appears *before* the downstream weights decay, causation is settled in the direction we suspect; if
+    the decay comes first, it is settled against us. No released Evo 2 artifact can do this, and no
+    amount of H100 time on finished checkpoints substitutes.
+    This is the `hyena-lab` idea from [[small-model-idea]], proposed before there was a reason for it.
+    There now is one, and it is the best reason this project has produced: a concrete mechanism that
+    only a training run can test. Scope it narrowly — the question is the funnel, not a general
+    architecture study.
+
+## What to claim meanwhile
+
+> Everything downstream of the dominant late block has weights three to four orders of magnitude below
+> its siblings, in all three checkpoints measured, with the boundary falling inside that block exactly
+> where its write enters the residual stream.
+
+Not "the funnel causes it". The weaker sentence is still, as far as sixteen targeted searches can tell,
+unreported — and it is the part that is actually measured.
+
+---
+
 # GROUP 3 — Citation hygiene
 
 23. **Read every `SUMMARY` and `SECONDHAND` entry in `RELATED_WORK.md` before citing it.** Michalak &
@@ -298,6 +352,7 @@ go.
 | 7 | Their wobble test on E. coli | 1 run | their 2.2 |
 | 8 | `evo2_7b_base` replication (copying, round 5, the SE peak) | 1 run | his 1.4 |
 | 9 | Round 5 + copying + reading frame in **yeast**, then Caulobacter | 1 run each | his 1.4, and the arginine-rarity natural experiment |
+| **0** | **Suppression ratios across the four 7B checkpoints** | **free, CPU** | **the funnel's direction of cause** |
 
 **Step 1 is free and answers part of both groups — start there.** Steps 1–4 turn the strongest claims
 from suggestive into solid. Steps 5–6 close the two results marked "measured once" and "withdrawn".
