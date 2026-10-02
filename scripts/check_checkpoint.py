@@ -130,7 +130,8 @@ def describe(path: str) -> dict:
     # |mean| ACROSS blocks is apples to oranges -- it is what made the 2026-10-02 reading of
     # "blocks 24 and 49 look near-initialisation" ambiguous. The only meaningful comparison
     # is within one tensor name, across the blocks that have it.
-    print(f"\n{'tensor (by name)':44s} {'blocks':>7s} {'median |mean|':>14s} {'min':>11s} {'max':>11s}  outliers")
+    print(f"\n{'tensor (by name)':44s} {'blocks':>7s} {'median |mean|':>14s} {'min':>11s} "
+          f"{'max':>11s} {'max/min':>10s}  blocks < max/30")
     suffixes: dict[str, dict[int, float]] = {}
     for k, v in sd.items():
         b = block_index(k)
@@ -143,17 +144,29 @@ def describe(path: str) -> dict:
             continue
         vals = sorted(per.values())
         med = vals[len(vals) // 2]
-        # within one tensor name, a block more than 30x below the median is a real outlier
-        out = sorted(b for b, x in per.items() if med > 0 and x < med / 30)
+        top = vals[-1]
+        # Compare against the MAXIMUM, not the median. The median assumes most blocks are
+        # healthy, and in the 40B more than half are not: its mlp.l1 median is 7.7e-6 because
+        # 26 of 50 blocks sit there, so a median rule declares the affected majority normal
+        # and flags nobody. The runner caught this. The max is the one order statistic that
+        # survives majority contamination, since at least one healthy block sets it.
+        out = sorted(b for b, x in per.items() if top > 0 and x < top / 30)
+        spread = top / vals[0] if vals[0] > 0 else float("inf")
         for b in out:
             odd.setdefault(b, []).append(name)
+        warn = "  <-- majority affected" if len(out) > len(per) / 2 else ""
         print(f"{name[:44]:44s} {len(per):7d} {med:14.4e} {vals[0]:11.4e} {vals[-1]:11.4e}"
-              f"  {out if out else ''}")
+              f" {spread:10.3g}  {out if out else ''}{warn}")
     if odd:
         print(f"\n*** Blocks far below the median FOR THEIR OWN TENSOR: "
               f"{ {b: v for b, v in sorted(odd.items())} }")
         print("    Same tensor, same model, so this comparison is like-for-like. Blocks that")
         print("    appear here look under-trained relative to their siblings.")
+        print("\n    CAVEAT: Evo 2 checkpoints also carry Transformer Engine `_extra_state` blobs")
+        print("    (dropped above) that hold FP8 scaling metadata. If part of a model is stored")
+        print("    FP8-scaled and part is not, raw |mean| is NOT comparable across those parts,")
+        print("    and this table would show exactly the pattern above. Treat a whole-contiguous-")
+        print("    half result as a question about storage format, not a verdict on training.")
     else:
         print("\nNo block is an outlier within its own tensor name: nothing looks under-trained.")
 

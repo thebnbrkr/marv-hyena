@@ -1645,3 +1645,84 @@ cache from earlier rounds.
 
 **This is the cheapest open question in the project** — one command, no GPU, on a checkpoint already
 downloaded — and it bears on the funnel, which is the project's most-cited finding.
+
+---
+
+## Checkpoint check v2 (2026-10-02): the weights explain the dead blocks, and it is not initialisation
+
+The runner re-ran the fixed script unmodified. Full output in `results/scaling/RUNNER_REPORT_v2.md`.
+This is the result that settles the dead-block question, and it points the opposite way from the
+2026-10-02 note that called the gradient-starvation hypothesis premature.
+
+### What the like-for-like table shows
+
+**20B — a clean baseline.** Its three attention blocks all carry normal weights:
+`inner_mha_cls.Wqkv.weight` median 1.36e-02, min 1.31e-02, max 1.42e-02, **no outliers**. Two blocks do
+stand out, and both sit at the funnel: **block 22** (`filter.D`, `filter.short_filter_weight`,
+`out_filter_dense.weight`, `projections.weight`) and **block 23 — the funnel block itself** — whose
+`mlp.l1/l2/l3` are 7.76e-06 against a 1.23e-02 median, and whose `post_norm.scale` is tiny.
+
+**40B — the whole second half.** `inner_mha_cls.Wqkv.weight` across its 8 attention blocks: median
+**7.66e-06**, max 1.42e-02. With three trunk attention blocks (3, 10, 17) at ~1.4e-02 and five new ones
+(24, 31, 35, 42, 49), the median landing at 7.66e-06 means **all five new attention blocks are at that
+level**. `mlp.l1.weight` over 50 blocks: median **7.73e-06**, max 1.28e-02 — so more than half the
+model's MLP weights are tiny, which is blocks 24–49.
+
+### The number that changes the reading
+
+A standard `1/sqrt(fan_in)` initialisation for an 8192-wide layer gives std 1.10e-02 and |mean|
+**8.8e-03**. So:
+
+| | |mean| | versus initialisation |
+|---|---|---|
+| trunk (blocks 0–23) | 1.23e-02 | **1.4×** — at initialisation scale, as trained weights usually are |
+| 40B blocks 24–49 | 7.73e-06 | **0.00088×** — about **1,140× below initialisation** |
+
+**These blocks are not near initialisation. They are roughly 1,600× below the trunk and three orders of
+magnitude below where they started.** Weights do not shrink that far by being left alone; they shrink
+that far by being driven there — weight decay with no opposing gradient does exactly this.
+
+So the earlier reading ("newly added, under-trained blocks") is wrong in its mechanism, and the
+gradient-starvation hypothesis is **reinstated, now with direct weight evidence**:
+
+> A block whose residual write is rounded away in bf16 contributes nothing to the loss, receives no
+> gradient through the output, and weight decay then drives its parameters toward zero.
+
+### It is consistent across all three checkpoints
+
+| model | funnel | what is downstream | weights there |
+|---|---|---|---|
+| 7B | block 30 mixer | block 30's **own MLP**, block 31 | MLP writes ~1e−15; block 31 writes a **constant** |
+| 20B | block 23 mixer, the last block | block 23's **own MLP** | `mlp.l1/l2/l3` 7.76e−06 against a 1.23e−02 median |
+| 40B | block 23 mixer, of 50 | 26 blocks | ~7.7e−06 across MLP, `out_filter_dense`, `pre_norm`, `Wqkv` |
+
+The funnel block's **own MLP** is suppressed in both the 7B and the 20B — the MLP runs after the mixer
+inside the same block, so it is the first thing downstream. That detail is hard to explain any other
+way, and neither checkpoint was depth-extended.
+
+### Two caveats, both real
+
+1. **FP8 metadata was dropped.** The script discards Transformer Engine `_extra_state` entries (123 in
+   the 20B, 258 in the 40B). If part of a model were stored FP8-scaled with the scales in those blobs,
+   raw |mean| would not be comparable. Against this: in Transformer Engine, `_extra_state` holds
+   activation scaling factors and amax history, not a weight quantisation — weights stay in bf16 — and
+   7.7e-06 is far below FP8's representable range anyway, so it is not an FP8-stored value being read
+   raw. Worth confirming by parsing one blob before the claim is published.
+2. **Our own 30×-below-median rule was broken, exactly as the runner said.** When more than half the
+   blocks are affected the median sits *inside* the affected group, so the rule declares the majority
+   normal. The 40B's `mlp.l1` median of 7.73e-06 is the proof. **Fixed:** the script now compares each
+   block against the **maximum** for its tensor name, the one order statistic that survives majority
+   contamination, prints `max/min` spread, and labels a tensor "majority affected". Verified on a
+   simulation with 26 of 50 blocks suppressed, where it now flags all 26 and all five attention blocks;
+   the median rule flagged none of them.
+
+### The test that would confirm it, and it is free
+
+The 7B has **five** attention blocks (3, 10, 17, 24, 31), so its majority is healthy and the comparison
+is unambiguous. Prediction, registered here: **block 31's `Wqkv` and block 30's `mlp.l*` are two to
+three orders of magnitude below blocks 3, 10, 17 and 24**, while every block upstream of 30 is at
+initialisation scale. `evo2_7b.pt` is already in the Colab cache from earlier rounds, the check needs no
+GPU, and it would confirm the mechanism on a checkpoint that was never depth-extended.
+
+**Refuted if** block 31's `Wqkv` is within 10× of the other attention blocks — the 7B's constant write
+would then need a different explanation, and the 40B evidence would stand alone.
