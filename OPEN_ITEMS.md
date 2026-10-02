@@ -316,11 +316,22 @@ from *during* training separates them.
     only a training run can test. Scope it narrowly — the question is the funnel, not a general
     architecture study.
 
+39. **Measure per-block gain directly.** *1 short GPU run.* Feed unit-norm inputs into each block in
+    isolation and record output/input norm. Settles whether the funnel is entirely block 30's own gain
+    (expected, given RMSNorm's scale invariance) and makes "why that block" the precise question.
+    Note `|mean|` of a weight tensor does **not** answer this — it measures suppression, not gain.
+40. **Read the gradient-sink literature before claiming the starvation result is new**: Wortsman et al.,
+    *Curse of Depth*, and the related gradient-sink papers. All `SECONDHAND` in `RELATED_WORK.md`.
+
 ## What to claim meanwhile
 
 > Everything downstream of the dominant late block has weights three to four orders of magnitude below
 > its siblings, in all three checkpoints measured, with the boundary falling inside that block exactly
 > where its write enters the residual stream.
+
+Not "because the residual stream is unnormalised, magnitudes compound" — that mechanism is withdrawn
+(see `RESEARCH_LOG.md`, 2026-10-02). Both paths into a block are scale-invariant in the residual, so a
+block's write magnitude is set by its own weights, not inherited.
 
 Not "the funnel causes it". The weaker sentence is still, as far as sixteen targeted searches can tell,
 unreported — and it is the part that is actually measured.

@@ -1893,6 +1893,83 @@ Engine state:
 *A tiny stand-in model catches logic errors. It cannot catch a file-format difference that only exists
 in real checkpoints, and it cannot catch a statistic that fails only when most of the data is affected.*
 
+## 2026-10-02: A correct critique of the funnel's mechanism, and an error of mine
+
+A reviewer challenged the explanation of *why* the funnel forms — both the one we recorded and the one
+we credited to Wei et al. They are right, and the correction matters because it changes what can be
+claimed about cause.
+
+### The argument, and why it holds
+
+> The mixer only ever sees `pre_norm(u)`, and RMSNorm gives the same output if you multiply its input
+> by any constant. So a huge residual cannot by itself make the next block's write bigger. Every
+> pre-norm transformer, Llama included, leaves the residual unnormalized between blocks, and none grow
+> to 10¹².
+
+Checked against the block formula in `arch.py` and the transcription in `tests/tiny_hyena.py`:
+
+```
+z    = projections(pre_norm(u));  z = filter(z);  z_in = out_filter_dense(z) + u
+out  = mlp(post_norm(z_in)) + z_in
+RMSNorm(x) = scale * x / (||x|| * H**-0.5 + eps)
+```
+
+For large `||x||` the `eps` is negligible, so `RMSNorm(c·x) = RMSNorm(x)` exactly. **Both paths into a
+block — mixer and MLP — are scale-invariant in the residual.** There is no bypass: the raw residual
+reaches the next block only through the `+ u` skip, never through the mixer.
+
+So **"no residual normalisation, therefore magnitudes compound" is wrong**, and that is the mechanism
+Wei et al. state and this log repeated. A block's write magnitude is set by its own weights acting on a
+normalised input, not inherited from upstream. What does compound across blocks is *direction*: block
+30 reads a normalised vector whose direction is dominated by whatever wrote largest before it.
+
+**This log's statement of the mechanism is withdrawn.** The magnitude *observation* stands, in their
+paper and in ours; the explanation does not.
+
+### Their proposed test, and why it is weaker than it looks
+
+They suggest rescaling a real block-30 input to unit size, running blocks 28–30 alone, and checking
+whether block 30 still writes ~1e11. Worth running, but the outcome is **determined analytically** by
+the scale invariance above: `pre_norm` undoes the rescaling exactly, so the write will be unchanged to
+numerical precision. It is a useful check that no bypass path exists, not a measurement of the gain.
+
+The question the critique actually opens is better served by measuring gain directly: feed unit-norm
+inputs into each block *in isolation* and record the output/input norm ratio, per block. If block 30's
+ratio is ~1e11 while its neighbours are O(1), the funnel is entirely a property of block 30's own
+weights, and "why that block" becomes the open question. Registered as a round-7 item.
+
+### An error of mine the critique exposes indirectly
+
+Reading the 7B weight table, this log noted that block 30's own weights are at or *below* the per-tensor
+maximum (`projections` 7× below, `filter.D` 18×, `out_filter_dense` 46×) and treated that as a puzzle:
+how can a block with unremarkable weights write 1e11?
+
+**It is not a puzzle, because `|mean|` does not measure gain.** A matrix whose entries have small mean
+absolute value can still have a large operator norm — especially if it is low-rank or if its rows align
+with the input it receives. Mean absolute weight is the right statistic for the question it was built
+for ("is this tensor suppressed toward zero?", where 1e-6 against 1e-2 is unambiguous) and the wrong
+statistic for "does this block amplify?". The two questions need different measurements, and conflating
+them was careless.
+
+### What is unaffected
+
+**The starvation result does not depend on any of this.** It says that everything downstream of the
+dominant write has weights 10³–10⁴ below its siblings, with the boundary inside the funnel block. That
+is a statement about weights, and it holds whatever makes the write large. The reviewer agrees it is the
+original part:
+
+> The general mechanism family is published (Wortsman et al., *Curse of Depth*, and the gradient-sink
+> papers), but the within-block boundary in released weights appears to be yours.
+
+**Three papers to read before claiming that**, and none has been read here — they go into
+`RELATED_WORK.md` as `SECONDHAND`, which this project's own rule says may not be cited yet. Given that
+two of this week's corrections came from unread sources, that rule earns its keep again.
+
+*Lesson: a mechanism that explains an observation is not evidence for the mechanism. "No residual
+normalisation" sounded sufficient, was repeated from a published paper, and survives about ten seconds
+of contact with the actual block formula — which was sitting in our own `arch.py` docstring the whole
+time.*
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.
