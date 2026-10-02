@@ -1797,6 +1797,102 @@ controls framing by itself.
 Nothing in their paper touches operators, layers, ablation, the write-magnitude funnel, copying, attention, the
 load-bearing map, or block 0. Different question, different method, same model.
 
+## 2026-10-02: Where this stands, after the 20B and 40B runs
+
+Four days of back-and-forth with a third party running H100s, a verdict reversed, a second verdict
+reversed back, and two bugs in our own tools. This entry says plainly what happened, what we now
+believe, and what is still open — because the thread is hard to follow from the commit log alone.
+
+### The one-paragraph version
+
+Someone with 8×H100s ran our scaling notebooks on Evo 2's **20B** and **40B**. The 20B results are
+good and confirm the funnel at a second scale. The 40B at first looked broken; it is not. What it
+revealed instead is that **the 26 blocks sitting after the funnel have weights about a thousand times
+smaller than the blocks before it** — and not small as in untrained, small as in *driven far below where
+they started*. The best explanation is that the funnel starves them: their contribution is rounded away,
+so they never affect the model's error, so they never get corrected, and ordinary weight decay shrinks
+them to nothing. A one-cell check on the 7B would confirm it.
+
+### What happened, in order
+
+**1. The 20B replicated the funnel, and more.** One block's write is 1.07e13× the next largest, taking
+100.0000% of the final residual — stronger than the 7B's 1.2e5×. Attention is still required for
+copying at every gap (0.26 against a chance level of 0.25, with the model still healthy at 0.82).
+Load-bearing layers in every Hyena family, **none in attention**. The amino-acid effect is stronger
+than at 7B (82% against 72%). So the project's central findings are not a 7B quirk.
+
+**2. We called the 40B invalid. We were wrong.** Its numbers were bit-identical to the 20B's wherever
+both models have the block, including the embedding — which cannot happen with different weights. We
+inferred a mislabelled checkpoint file. The runner inferred something else: that the two checkpoints
+*share* their first 24 blocks. They were right. The 40B file is byte-complete at 82.3 GB with all 50
+blocks, and the 20B and 40B have the same width with roughly double the depth — the signature of
+depth-growth training. Of their 261 shared tensors, 191 are bit-identical.
+
+*The lesson is not subtle: our smoke checks verify that a measurement is an exact decomposition of
+whatever model is loaded. They say nothing about whether it is the model you asked for. Nothing in the
+pipeline looked at weight values until we wrote something that did.*
+
+**3. The consequence for the paper, which is real.** The 20B and 40B are **not independent
+checkpoints**. "Replicates at 20B and 40B" is one replication, not two, and every shared-block number is
+one measurement reported twice.
+
+**4. Then the weights explained the dead blocks.** The runner re-ran a fixed checkpoint reader. In the
+40B, blocks 24–49 carry weights around 7.7e-06 across MLP, output projection, normalisation and
+attention, while blocks 0–23 sit at 1.2e-02. The number that matters: standard initialisation for an
+8192-wide layer gives about **8.8e-03**. The trunk is at 1.4× that, where trained weights normally are.
+The second half is at **0.00088×** — roughly **1,140× below where it started**. Weights do not fall
+three orders of magnitude by being ignored; they fall that far by being driven down.
+
+### What we now believe, and how confident to be
+
+**The funnel starves what comes after it.** A block whose residual write is rounded away in 16-bit
+arithmetic contributes nothing to the loss, so it receives no gradient through the output, and weight
+decay then drives its parameters toward zero.
+
+Three checkpoints agree, including the detail that is hardest to explain any other way:
+
+| model | funnel | immediately downstream | what we see |
+|---|---|---|---|
+| 7B | block 30's mixer | **block 30's own MLP**, then block 31 | MLP writes ~1e−15; block 31 writes a **constant** on three unrelated stretches of DNA |
+| 20B | block 23's mixer, the last block | **block 23's own MLP** | its `mlp.l1/l2/l3` are 7.76e−06 against a 1.23e−02 median |
+| 40B | block 23's mixer, of 50 | 26 blocks | ~7.7e−06 throughout |
+
+The MLP runs after the mixer *inside the same block*, so the funnel block's own MLP is the first thing
+downstream — and it is suppressed in both the 7B and the 20B, neither of which was depth-extended. The
+20B is the accidental control: its funnel sits at the very last block, so it has almost nothing
+downstream, and almost nothing dead.
+
+**Confidence: good, not settled.** Two things could still undo it. The checkpoint reader drops
+Transformer Engine `_extra_state` blobs, and if part of a model were stored FP8-scaled with the scales
+in those blobs, the comparison would not be like-for-like — though TE stores activation scaling rather
+than weight quantisation, and 7.7e-06 is below FP8's range anyway. And the direction of causation is
+assumed rather than shown: quiet blocks could in principle come first, with the funnel as the
+consequence.
+
+### What is open, and the cheap test
+
+`notebooks/marv_hyena_weight_check_7b.ipynb` is one cell on a **free Colab CPU runtime**. The 7B has
+five attention blocks (3, 10, 17, 24, 31) and only block 31 sits after the funnel, so four healthy
+siblings make the comparison unambiguous — unlike the 40B, where the affected blocks are the majority.
+The prediction is registered: block 31's attention weights and block 30's MLP weights are 100–1000×
+below their siblings, refuted if block 31 is within 10×.
+
+### Two bugs of ours the runner found
+
+Both were real, and both came from code dry-run only against a tiny test model that has no Transformer
+Engine state:
+
+1. `torch.load(weights_only=True)` refuses real Evo 2 checkpoints, because of those `_extra_state`
+   blobs. Fixed by allowlisting `io.BytesIO`, which keeps the protection that `weights_only=False`
+   would throw away.
+2. Our outlier rule compared each block against the **median** for its tensor. When more than half the
+   blocks are affected — as in the 40B — the median sits inside the affected group and the rule
+   declares the majority normal. The runner spotted it from the numbers. Fixed to compare against the
+   **maximum**, the one order statistic that survives majority contamination.
+
+*A tiny stand-in model catches logic errors. It cannot catch a file-format difference that only exists
+in real checkpoints, and it cannot catch a statistic that fails only when most of the data is affected.*
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.
