@@ -38,14 +38,44 @@ from pathlib import Path
 
 
 def load_state_dict(path: str):
+    """Load an Evo 2 checkpoint's state dict, tensors only.
+
+    Two real failures, found by the first person to run this on real files
+    (2026-10-02), both fixed here:
+
+    1. `weights_only=True` refuses the file. Evo 2 checkpoints carry Transformer
+       Engine `*._extra_state` entries, which are pickled `io.BytesIO` blobs of
+       FP8 scaling metadata. Allowlisting `io.BytesIO` through
+       `safe_globals` keeps the code-execution protection that
+       `weights_only=False` would throw away -- BytesIO holds bytes, it does not
+       execute anything.
+    2. Those same entries are not tensors, so `.is_floating_point()` blows up on
+       them later. They are dropped here, at the boundary, and counted.
+    """
+    import io
+
     import torch
-    try:  # mmap keeps 80 GB off the heap; available from torch 2.1
-        sd = torch.load(path, map_location="cpu", mmap=True, weights_only=True)
-    except TypeError:
-        sd = torch.load(path, map_location="cpu")
+
+    def _load(**kw):
+        try:  # mmap keeps 80 GB off the heap; available from torch 2.1
+            return torch.load(path, map_location="cpu", mmap=True, **kw)
+        except TypeError:
+            return torch.load(path, map_location="cpu", **kw)
+
+    try:
+        with torch.serialization.safe_globals([io.BytesIO]):
+            sd = _load(weights_only=True)
+    except AttributeError:  # torch < 2.3 has no safe_globals context manager
+        torch.serialization.add_safe_globals([io.BytesIO])
+        sd = _load(weights_only=True)
     while isinstance(sd, dict) and len(sd) <= 3 and any(
             k in sd for k in ("state_dict", "model", "module")):
         sd = sd.get("state_dict") or sd.get("model") or sd.get("module")
+    dropped = [k for k, v in sd.items() if not isinstance(v, torch.Tensor)]
+    if dropped:
+        print(f"dropped {len(dropped)} non-tensor entries "
+              f"(Transformer Engine FP8 metadata), e.g. {dropped[:2]}")
+        sd = {k: v for k, v in sd.items() if isinstance(v, torch.Tensor)}
     return sd
 
 
@@ -93,6 +123,39 @@ def describe(path: str) -> dict:
         stats[b] = (am, zf)
         flag = "   <-- ALL ZERO" if zf > 0.99 else ("   <-- near zero" if am < 1e-8 else "")
         print(f"{b:6d} {len(by_block[b]):8d} {am:12.4e} {zf:10.3f}  {keys[0][:46]}{flag}")
+
+    # Per-block probing above picks ONE tensor per block, and which one depends on the
+    # block's type: a Hyena block offers filter.D / filter.h, an attention block offers
+    # inner_mha_cls.Wqkv.weight. Those have different natural scales, so comparing their
+    # |mean| ACROSS blocks is apples to oranges -- it is what made the 2026-10-02 reading of
+    # "blocks 24 and 49 look near-initialisation" ambiguous. The only meaningful comparison
+    # is within one tensor name, across the blocks that have it.
+    print(f"\n{'tensor (by name)':44s} {'blocks':>7s} {'median |mean|':>14s} {'min':>11s} {'max':>11s}  outliers")
+    suffixes: dict[str, dict[int, float]] = {}
+    for k, v in sd.items():
+        b = block_index(k)
+        if b is None or not v.is_floating_point() or v.numel() <= 1024:
+            continue
+        suffixes.setdefault(re.sub(r"^(?:.*\.)?blocks\.\d+\.", "", k), {})[b] = float(v.float().abs().mean())
+    odd = {}
+    for name, per in sorted(suffixes.items()):
+        if len(per) < 3:
+            continue
+        vals = sorted(per.values())
+        med = vals[len(vals) // 2]
+        # within one tensor name, a block more than 30x below the median is a real outlier
+        out = sorted(b for b, x in per.items() if med > 0 and x < med / 30)
+        for b in out:
+            odd.setdefault(b, []).append(name)
+        print(f"{name[:44]:44s} {len(per):7d} {med:14.4e} {vals[0]:11.4e} {vals[-1]:11.4e}"
+              f"  {out if out else ''}")
+    if odd:
+        print(f"\n*** Blocks far below the median FOR THEIR OWN TENSOR: "
+              f"{ {b: v for b, v in sorted(odd.items())} }")
+        print("    Same tensor, same model, so this comparison is like-for-like. Blocks that")
+        print("    appear here look under-trained relative to their siblings.")
+    else:
+        print("\nNo block is an outlier within its own tensor name: nothing looks under-trained.")
 
     dead = [b for b, (am, zf) in stats.items() if zf > 0.99 or am < 1e-8]
     print()

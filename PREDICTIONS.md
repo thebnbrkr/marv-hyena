@@ -1512,3 +1512,74 @@ them, because its first 24 blocks are the 20B's. P36's funnel reading differs be
 because the 40B has 26 further blocks for the dominant write to be divided against: block 23's share
 falls from 1.000000 to 0.9268, and the largest-to-second ratio from 1.07e13 to 2.1, entirely because
 block 34 contributes a second large write that the 20B does not have.
+
+---
+
+## Checkpoint check returned (2026-10-02): not H1, and H2 only partly
+
+The runner re-downloaded and re-merged the 40B shards after the 8×H100 box was released, then ran
+`check_checkpoint.py`. Their full report is `results/scaling/RUNNER_REPORT.md`. Three results, one of
+which opens a new question.
+
+### 1. H1 is dead: the 40B file is byte-complete
+
+`evo2_40b.pt` is **82,253,491,694 bytes**, exactly the sum of the two HuggingFace shards, holds **all 50
+blocks** with no gaps, 537 tensors, and no probed block is zero. `evo2_20b.pt` is 47.9 GB with 24
+blocks and 261 tensors. The mislabelled-merge hypothesis is refuted by direct measurement, confirming
+what the input-dependence analysis already indicated.
+
+### 2. H2 holds only partly: 191 of 261 shared tensors are identical, 70 differ
+
+Of the 261 tensors the two files share, **191 are bit-identical and 70 differ**, the first being
+`blocks.0.post_norm.scale`. So the 40B is not a clean frozen-trunk copy of the 20B.
+
+70 differing over 24 shared blocks is ≈ 2.9 per block, which is about the number of normalisation
+scales per block. A simulation built to that shape — identical trunk weights, re-tuned norm scales,
+plus new blocks — reproduces the observed signature, including a `*_norm.scale` tensor as the first
+differing key. **Likely reading: the 40B took the 20B's trunk weights unchanged and re-tuned its
+normalisation, then added 26 blocks.** This is a hypothesis about which 70 tensors differ, and listing
+them would settle it in one command.
+
+Either way the practical consequence from the 2026-10-02 correction stands and if anything hardens:
+**the 20B and 40B are not independent checkpoints**, their shared-block numbers are one measurement
+reported twice, and "replicates at 20B and 40B" is one replication.
+
+### 3. The runner's own observation, and a flaw in our script
+
+They noticed what the script did not flag: in the 40B, attention blocks **24 and 49** have
+`inner_mha_cls.Wqkv.weight` with |mean| ≈ **7.66e-6**, two to four orders of magnitude below every
+other probed tensor, and nearly equal to each other (7.6603e-6 against 7.6559e-6) — the signature of
+two tensors left near initialisation.
+
+**Their caution was right, and the ambiguity was our fault.** `describe()` probes one tensor per block
+and picks whichever comes first, so it compared *attention* `Wqkv` tensors against *Hyena* `filter.D`
+and `filter.h` tensors. Those have different natural scales, so "100–10,000× smaller than every other
+probed tensor" could not distinguish an under-trained block from a different kind of parameter. The
+20B's attention blocks were never probed at all, so there was no baseline.
+
+Fixed: `check_checkpoint.py` now groups tensors **by name** and compares each block only against the
+blocks that have the *same* tensor, flagging any more than 30× below that group's median. On a
+simulation with two deliberately near-initialisation attention blocks it flags exactly those two,
+consistently across three tensor names, and stays quiet on the norm scales. Re-running it on the real
+files answers the question outright: if the 40B's block-24 `Wqkv` sits far below its block-3 and
+block-10 siblings — which *are* trunk attention blocks known to work — then those new attention blocks
+really are under-trained.
+
+**Why it matters.** If several of the 40B's new attention blocks are near initialisation, that is a
+better explanation of the 26 dead downstream blocks than the gradient-starvation hypothesis recorded on
+2026-10-02, and that hypothesis should not be pursued until this is settled.
+
+### Two real bugs in our script, both fixed
+
+The runner hit both and documented them rather than working around them silently:
+
+1. **`torch.load(weights_only=True)` refuses these files**, because Evo 2 checkpoints carry Transformer
+   Engine `*._extra_state` entries — pickled `io.BytesIO` blobs of FP8 scaling metadata. Fixed by
+   allowlisting `io.BytesIO` through `torch.serialization.safe_globals`, which keeps the
+   code-execution protection that `weights_only=False` would discard: BytesIO holds bytes and executes
+   nothing. This is the same shim they chose.
+2. **`.is_floating_point()` then fails on those same entries.** Fixed by dropping non-tensor entries at
+   load, with a count printed (123 in the 20B, 258 in the 40B).
+
+Both were real defects in code written and dry-run against a tiny model that has no Transformer Engine
+state. The tiny-model dry run cannot catch a format difference that only appears in real checkpoints.
