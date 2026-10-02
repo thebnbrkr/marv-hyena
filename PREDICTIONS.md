@@ -1583,3 +1583,65 @@ The runner hit both and documented them rather than working around them silently
 
 Both were real defects in code written and dry-run against a tiny model that has no Transformer Engine
 state. The tiny-model dry run cannot catch a format difference that only appears in real checkpoints.
+
+---
+
+## It is not only the 40B: the 7B shows the same signature (2026-10-02, re-analysis)
+
+Prompted by the question "does this happen for other models too?". Checked against
+`results/round2/results_round2.json`, which captured per-block write norms in **three different stretches
+of DNA**. If a block's write is identical across all three, its output does not depend on its input.
+
+| block | kind | part | region 0 | region 1 | region 2 | |
+|---|---|---|---|---|---|---|
+| 28 | se | mixer | 2.81e+01 | 2.98e+01 | 2.33e+01 | varies |
+| 29 | mr | mlp | 5.75e+06 | 9.04e+06 | 7.69e+06 | varies |
+| **30** | **li** | **mixer** | **7.09e+11** | **4.42e+12** | **1.30e+12** | the funnel; varies |
+| 30 | li | mlp | 3.61e−15 | 1.07e−14 | 7.40e−15 | varies, but ~1e−15 |
+| **31** | **attn** | **mixer** | **3.822812e−01** | **3.822812e−01** | **3.822812e−01** | **IDENTICAL** |
+| 31 | attn | mlp | 6.66e−14 | 1.55e−13 | 9.74e−14 | varies, but ~1e−13 |
+
+**The 7B's final attention block writes exactly 0.3822812 on three unrelated stretches of DNA.** Every
+other block varies. Its output is input-independent — which is precisely what a near-zero `Wqkv`
+produces: with Q, K and V all ≈ 0 the attention output collapses, and what reaches the residual is the
+output projection's bias, a constant.
+
+That is the same signature the runner found in the 40B's attention blocks 24 and 49.
+
+### What this does to the two explanations
+
+**It rules out "newly added, under-trained blocks" as a complete account.** The 7B is a single training
+run with no depth extension, and it shows the effect in the one block that sits downstream of its
+funnel. So the phenomenon is associated with **being downstream of the funnel**, not with being
+appended late.
+
+The three checkpoints line up:
+
+| model | funnel at | blocks downstream | what they do |
+|---|---|---|---|
+| 7B | block 30 of 32 | block 30's MLP, block 31 | MLP writes ~1e−15; attention writes a **constant** |
+| 20B | block 23 of 24, the **last** block | none | nothing to observe |
+| 40B | block 23 of 50 | 26 blocks | write 1e−13 to 0.04; at least two attention blocks near initialisation |
+
+The 20B is the control that makes the pattern legible: it is the one checkpoint whose funnel sits at
+the very end, and it is the one with no dead blocks at all.
+
+### Where that leaves the gradient-starvation hypothesis
+
+Reinstated as worth testing, with the caveat recorded on 2026-10-02 still standing. The 7B evidence
+shows the effect is not an artifact of depth extension. It does **not** yet show the direction of
+causation:
+
+- **Funnel first:** once a block's write is rounded away in bf16, it receives no gradient through the
+  output, so there is no pressure to keep its magnitude, and the weights decay toward producing nothing.
+- **Quiet blocks first:** blocks that happen to contribute little leave the earlier block's write
+  dominant, and the funnel is the consequence rather than the cause.
+
+The 7B's block 31 distinguishes these better than the 40B does, because its weights can be read on an
+A100 without any Hopper time: **if block 31's `Wqkv` is near zero while blocks 3, 10, 17 and 24's are
+normal, the weights really did end up near-zero**, and the question becomes why. `check_checkpoint.py`
+now answers that directly with its per-tensor-name comparison, and `evo2_7b.pt` is already in the local
+cache from earlier rounds.
+
+**This is the cheapest open question in the project** — one command, no GPU, on a checkpoint already
+downloaded — and it bears on the funnel, which is the project's most-cited finding.
