@@ -1349,9 +1349,41 @@ Now fixed, and both checks print in Stage 0 and in the report block:
   negligible. Applied to the delivered data it marks the 40B suspicious (dead tail 15, threshold 5)
   and clears the 20B (dead tail 0).
 
-**To settle it, the run needs:** `ls -l` on the cache (40B in bf16 is ~80 GB, 20B ~40 GB — a ~40 GB
-`evo2_40b.pt` is the answer on its own), the fingerprint from each checkpoint, and a re-merge of the
-40B shards before any re-run.
+### The runner reached the same observation independently, with a different reading
+
+Their note (2026-10-01): *"The 20B and 40B results match almost exactly wherever both models have the
+block (the first 24): same load-bearing set, identical copying scores, same baseline health. That
+suggests the 20B checkpoint shares the 40B model's first 24 blocks. I haven't verified this, but it
+changes how a '20B vs 40B' comparison should be read."*
+
+Same observation, a **different hypothesis**, and theirs deserves weight:
+
+| | |
+|---|---|
+| **H1** (ours) | the merged `evo2_40b.pt` does not hold the 40B weights, so a 50-block skeleton got another checkpoint's 24 blocks and the rest kept their initialisation |
+| **H2** (theirs) | the checkpoints genuinely share their first 24 blocks |
+
+**H2 is more plausible than it first sounds.** Evo 2's 20B and 40B have the **same width** (hidden
+8192) and roughly double the depth (24 → 50). A bigger model that is not wider, only deeper, is what
+**depth-growth training** produces, and that would make the shared prefix a fact about the checkpoints
+rather than a mistake. Under H2 the 40B run is **valid**, and "26 of 50 blocks do nothing" becomes a
+finding rather than an artifact.
+
+What the run data cannot settle: the write norms of blocks 24–49 (1e-13 to 0.04) are anomalous under
+**both** readings — untrained random weights would give O(1) outputs, not 1e-13 — so neither hypothesis
+is clean, and the question has to be answered at the weight level rather than from behaviour.
+
+`scripts/check_checkpoint.py` does that without a GPU, in about a minute: it reads the `.pt` directly,
+lists which block indices are present, and reports each probed block's mean absolute weight and zero
+fraction. Late blocks absent or all-zero → H1, and the 40B must be redone. Late blocks with
+trained-looking weights → H2, and the shared prefix is real. With two files it also reports whether
+their shared tensors are bit-identical, which is the direct test. Verified against simulated
+checkpoints of both kinds.
+
+**To settle it, the run needs:** `python scripts/check_checkpoint.py /work/hf_cache/evo2_20b.pt
+/work/hf_cache/evo2_40b.pt` — one command, no GPU, under a minute. File size alone is close to
+decisive (40B in bf16 is ~80 GB, 20B ~40 GB), and the per-block weight table settles it. A re-merge and
+re-run is only needed if that output says H1.
 
 ### P36 — CONFIRMED on 20B (40B not assessed)
 
