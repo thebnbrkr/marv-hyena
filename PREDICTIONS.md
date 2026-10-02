@@ -1726,3 +1726,76 @@ GPU, and it would confirm the mechanism on a checkpoint that was never depth-ext
 
 **Refuted if** block 31's `Wqkv` is within 10× of the other attention blocks — the 7B's constant write
 would then need a different explanation, and the 40B evidence would stand alone.
+
+---
+
+## 7B weight check (2026-10-02): CONFIRMED, by a wide margin
+
+Free Colab CPU runtime, `evo2_7b.pt` (13.8 GB), 354 tensors after dropping 37 Transformer Engine
+metadata blobs. No GPU, no model built. Executed notebook in `results/weight_check/`.
+
+**Clause 1 — block 31's attention against blocks 3, 10, 17 and 24, same tensor:**
+
+| tensor | siblings | block 31 | ratio |
+|---|---|---|---|
+| `inner_mha_cls.Wqkv.weight` | 1.492e−02 | 3.117e−06 | **4,787× smaller** |
+| `inner_mha_cls.out_proj.weight` | 9.584e−03 | 5.196e−07 | **18,446× smaller** |
+
+**Clause 2 — block 30's MLP against every upstream block's MLP:**
+
+| tensor | upstream | block 30 | ratio |
+|---|---|---|---|
+| `mlp.l1.weight` | 1.232e−02 | 3.014e−06 | **4,086× smaller** |
+| `mlp.l2.weight` | 1.217e−02 | 3.014e−06 | **4,036× smaller** |
+| `mlp.l3.weight` | 1.231e−02 | 4.055e−07 | **30,352× smaller** |
+
+Predicted 100–1000×. Observed **4,000–30,000×**. Confirmed, and an order of magnitude beyond the
+prediction. The refutation line was "within 10×"; nothing is close to it.
+
+### The gradient in the weights is sharper than expected
+
+The same table separates block 30's two halves, and they behave completely differently:
+
+| block 30, by part | ratio below the per-tensor maximum |
+|---|---|
+| `pre_norm.scale` (reads the residual, runs **before** the funnel write) | **1.0×** — untouched |
+| `projections.weight` (mixer input) | 7× |
+| `filter.D`, `filter.residues`, `filter.short_filter_weight` (the funnel's own filter) | 18–31× |
+| `out_filter_dense.weight` / `.bias` (mixer output) | 46× / 113× |
+| `post_norm.scale` (runs **after** the funnel write) | **1,256×** |
+| `mlp.l1/l2/l3` (run **after** the funnel write) | **4,000–30,000×** |
+
+**The suppression begins exactly where the funnel's write lands.** Everything block 30 needs in order
+to *produce* that write is intact — its pre-norm is at the maximum, its projections and filter are
+within an order of magnitude. Everything that runs *after* the write, inside the very same block, is
+gone: the post-norm by three orders, the MLP by four. Then block 31, entirely downstream, by four.
+
+This is the cleanest possible shape for the mechanism. A gradient does not stop at a block boundary —
+it stops at the point where the contribution starts being rounded away, and that point is mid-block.
+
+### What this settles, and what it does not
+
+**Settles:** the suppression is not an artifact of depth-growth training. The 7B is a single training
+run, never extended, and it shows the effect at full strength. The 40B's 26 suppressed blocks and the
+20B's suppressed funnel-block MLP are the same phenomenon at different depths.
+
+**Does not settle:** the direction of causation. These weights are consistent with "the funnel formed,
+downstream contributions were rounded away, no gradient arrived, weight decay did the rest" — but also,
+in principle, with "these components were suppressed first and the funnel is what remained". What
+argues for the first reading is the mid-block boundary: a block's own MLP has no reason to switch off
+unless something happened *between* the mixer and the MLP, and the only thing that happens there is the
+funnel's write entering the residual.
+
+Settling it properly needs training-time evidence — magnitudes across checkpoints of one run — which no
+released artifact provides. The honest claim is **"the suppression tracks the funnel exactly, including
+within a block"**, not "the funnel causes it".
+
+### Status of the funnel findings after this
+
+| claim | status |
+|---|---|
+| One late block's write dominates the residual | replicated at 7B and 20B; magnitude varies (1.2e5× to 1.07e13×) |
+| The magnitude growth itself | **published already** (Wei et al. 2025) — credit them |
+| Everything downstream of that write is numerically dead | 7B, 20B, 40B |
+| **Those components' weights are 10³–10⁴ below their siblings, starting mid-block** | **new, and the strongest result in the project** |
+| The funnel *causes* the suppression | not shown; needs training-time checkpoints |
