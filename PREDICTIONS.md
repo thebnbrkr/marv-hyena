@@ -1446,3 +1446,69 @@ points against 7B's size-matched 38). The stop clause falls just short of a thre
 Only one additional checkpoint has been measured. 20B shares Evo 2's corpus and the StripedHyena 2
 architecture, so this shows the pattern is **scale-stable within one model family**. The 40B rerun and
 an independently trained model both remain open.
+
+---
+
+## CORRECTION (2026-10-02): the 40B run is valid after all
+
+The H100 box has been released, so `/work/hf_cache/evo2_40b.pt` can no longer be read directly. The
+question was settled from the delivered data instead, and **the "40B run is INVALID" verdict recorded
+above is withdrawn.** The runner's hypothesis (H2) is right and ours (H1) is wrong.
+
+### What settles it
+
+**1. The file contains all 50 blocks.** The load log's "Extra keys in state_dict" dump lists block
+indices **0 through 49**. Those are Transformer Engine `_extra_state` entries, and they appear only for
+blocks present in the file. A mislabelled 24-block checkpoint would carry no `blocks.42.*` or
+`blocks.49.*` keys at all. This was in the log from the start and was underweighted.
+
+**2. Every one of blocks 24–49 responds to its input.** The biology stage stored per-block divergences
+for all 50 blocks across 60 sites. Standard deviation across sites, by block:
+
+| blocks | mean divergence | per-block std across sites | blocks with zero variance |
+|---|---|---|---|
+| 0–23 | 0.284 | — | **0 of 24** |
+| 24–49 | 0.129 | 0.040–0.230 | **0 of 26** |
+
+Unloaded or uninitialised weights cannot produce structured, input-dependent responses like this, and
+the profile has clear shape: a step down at block 35 (0.066 against block 34's 0.237) followed by a
+smooth rise to block 49.
+
+**3. The tiny write norms are not a contradiction.** `rel_divergence` is `d / n` — the change relative
+to the block's *own* output norm. A block whose absolute write is 1e-13 can still show a relative
+divergence of 0.1. Small absolute writes and normal relative responses are consistent, and both are
+measured here.
+
+So Evo 2's 20B and 40B **genuinely share their first 24 blocks**. Same width (hidden 8192), 24 against
+50 blocks, and 50/24 × 20B ≈ 42B: the 40B is the 20B made deeper, which is what depth-growth training
+produces.
+
+### What this costs, and what it buys
+
+**Costs — and this is the important part for any write-up.** The 20B and 40B are **not two independent
+checkpoints**. They share a trunk, so "the funnel replicates at 20B *and* 40B" is **one** replication,
+not two. Every shared-block number (the load-bearing set, the copying scores, baseline health) is the
+same measurement reported twice. The runner flagged exactly this: *"it changes how a '20B vs 40B'
+comparison should be read."* The honest claim is **"replicated on the 20B/40B family"**, and the only
+genuinely independent replication would be a differently trained model.
+
+**Buys — a new finding, and a mechanism worth testing.** In the 40B, **26 of 50 blocks sit downstream
+of the funnel**, write 1e-13 to 0.04 against block 23's 6.7e17, leave accuracy untouched when ablated,
+and *still compute input-dependent functions*. The 7B has one such block (31) and the 20B has none,
+because there the funnel is the final block. So the 40B is the only checkpoint measured with a long
+downstream tail.
+
+**Hypothesis, not a result:** a block downstream of the funnel has its write rounded away in bf16, so
+it receives no gradient through the output, and training has no pressure to keep its write large. The
+weights stay trained — they were trained before the funnel sharpened, and they still respond to input —
+but the magnitude decays. That predicts the write norm should fall with distance past the funnel, and
+the step at block 35 plus the rise to 49 is not obviously that shape, so it needs measuring rather than
+asserting. Testable on the 7B (block 31) on an A100, without any Hopper time.
+
+### What P36–P40 now say
+
+The 20B outcomes recorded above stand unchanged. The 40B adds **no independent confirmation** of any of
+them, because its first 24 blocks are the 20B's. P36's funnel reading differs between the two only
+because the 40B has 26 further blocks for the dominant write to be divided against: block 23's share
+falls from 1.000000 to 0.9268, and the largest-to-second ratio from 1.07e13 to 2.1, entirely because
+block 34 contributes a second large write that the 20B does not have.
