@@ -171,3 +171,70 @@ def device_map(hm: HyenaModel) -> dict:
         "sharded": len(seen) > 1,
         "by_device": {d: [i for i, x in blocks.items() if x == d] for d in seen},
     }
+
+
+def model_fingerprint(hm: HyenaModel, n_tensors: int = 12) -> dict:
+    """A cheap identity check for the loaded weights.
+
+    Two runs of two different checkpoints must not produce the same fingerprint.
+    If they do, the same weights were loaded twice, whatever the config said --
+    which is exactly what happened in the 20B/40B scaling runs of 2026-10-01,
+    where a mislabelled merged `.pt` gave a 50-block skeleton the 24 blocks of
+    another model's weights and left the rest uninitialised. The package's own
+    smoke checks could not catch it: they verify that the *measurement* is an
+    exact decomposition of whatever model is loaded, not that the model is the
+    one you asked for.
+
+    Cheap enough to print on every run: it touches the embedding and a spread of
+    block tensors, and reads a scalar from each.
+    """
+    import hashlib
+
+    def sig(t: torch.Tensor) -> str:
+        f = t.detach().float()
+        return f"{float(f.sum()):.6e}/{float(f.abs().mean()):.6e}/{tuple(t.shape)}"
+
+    parts = [f"embed:{sig(hm.model.embedding_layer.weight)}"]
+    step = max(1, hm.n_blocks // n_tensors)
+    for b in range(0, hm.n_blocks, step):
+        for name, p in hm.block(b).named_parameters():
+            parts.append(f"b{b}.{name}:{sig(p)}")
+            break  # one tensor per block is enough to separate checkpoints
+    blob = "|".join(parts)
+    return {"fingerprint": hashlib.sha256(blob.encode()).hexdigest()[:16],
+            "embedding": sig(hm.model.embedding_layer.weight),
+            "n_tensors": len(parts)}
+
+
+@torch.no_grad()
+def find_dead_tail(hm: HyenaModel, seq: str, rel_floor: float = 1e-6) -> dict:
+    """Blocks whose residual write is negligible against the largest write.
+
+    A trained network has a few such blocks at most (7B has one: its final
+    attention block, downstream of the funnel). A long contiguous dead tail
+    means those blocks' weights were never loaded -- the failure mode behind the
+    2026-10-01 "40B" run, where blocks 24-49 of 50 wrote ~1e-13 and ablating any
+    of them left accuracy untouched.
+
+    `dead_tail` counts how many of the LAST blocks are dead; `suspicious` is
+    True once that exceeds a tenth of the network.
+    """
+    from .trace import capture_writes
+
+    ids = hm.ids(seq) if isinstance(seq, str) else seq
+    n = ids.shape[-1]
+    W = capture_writes(hm, ids, positions=[n - 1])
+    norms = {}
+    for (b, part), v in W.parts.items():
+        norms[b] = max(norms.get(b, 0.0), float(v.norm()))
+    biggest = max(norms.values()) if norms else 0.0
+    dead = sorted(b for b, n in norms.items() if biggest > 0 and n < rel_floor * biggest)
+    tail = 0
+    for b in range(hm.n_blocks - 1, -1, -1):
+        if b in dead:
+            tail += 1
+        else:
+            break
+    return {"largest_write": biggest, "dead_blocks": dead, "n_dead": len(dead),
+            "dead_tail": tail, "suspicious": tail > max(2, hm.n_blocks // 10),
+            "reconstruction_error": W.reconstruction_error()}

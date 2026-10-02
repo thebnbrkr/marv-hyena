@@ -144,10 +144,20 @@ for d, blocks in DM['by_device'].items():
     print(f"  {d}: {len(blocks)} blocks  {blocks[:6]}{'...' if len(blocks) > 6 else ''}")
 print('embedding on', DM['embedding'], '| unembed on', DM['unembed'])
 
+# Which weights are actually loaded. On 2026-10-01 a mislabelled merged .pt gave a 50-block
+# 40B skeleton another model's 24 blocks of weights and left the rest uninitialised; the config,
+# the block count, the device map and the self-checks all looked right, because none of them
+# look at weight VALUES. Two runs of two checkpoints must not share a fingerprint.
+FP = diagnostics.model_fingerprint(hm)
+print(f"\\nweight fingerprint: {FP['fingerprint']}")
+print(f"embedding signature: {FP['embedding']}")
+print('If another checkpoint gives this same fingerprint, the same weights were loaded twice.')
+
 REPORT = {'model': MODEL_NAME, 'mode': 'quick' if QUICK else 'full',
           'n_blocks': hm.n_blocks, 'layout': hm.describe().splitlines()[0],
           'devices': DM['n_devices'], 'sharded': DM['sharded'],
-          'torch': torch.__version__, 'te': TE_WHY}
+          'torch': torch.__version__, 'te': TE_WHY,
+          'fingerprint': FP['fingerprint'], 'embedding_sig': FP['embedding']}
 def save():
     json.dump(REPORT, open(f'{OUT}/results_{MODEL_NAME}.json', 'w'), default=str, indent=1)
 def stage(name, fn):
@@ -177,6 +187,19 @@ OK = run_smoke_checks(hm, seq)
 REPORT['smoke_checks_passed'] = bool(OK); save()
 assert OK, ('SELF-CHECKS FAILED -- stop here and send back everything this cell printed, plus the '
             'device table above. Later stages would be meaningless.')
+
+# Are any blocks doing nothing? A trained network has at most a couple, downstream of the funnel.
+# A long dead TAIL means those blocks' weights were never loaded.
+DT = diagnostics.find_dead_tail(hm, seq)
+REPORT['dead_tail'] = {k: v for k, v in DT.items() if k != 'dead_blocks'}
+REPORT['dead_tail']['n_dead_blocks'] = DT['n_dead']
+print(f"\\nlargest residual write: {DT['largest_write']:.4g}")
+print(f"blocks writing < 1e-6 of it: {DT['n_dead']} of {hm.n_blocks}; "
+      f"contiguous dead tail: {DT['dead_tail']}")
+if DT['suspicious']:
+    print('*** SUSPICIOUS: a long run of final blocks contributes nothing. That usually means')
+    print('    their weights were never loaded. Report this -- do not trust the later stages.')
+save()
 print('\\nStage 0 gate passed.')""")
 
     s1 = md("""## Stage 1 — the layer layout
@@ -427,6 +450,12 @@ print(f"blocks: {REPORT['n_blocks']}  hidden: {REPORT.get('hidden_size')}  "
       f"attention at: {REPORT.get('attn_blocks')}")
 print(f"devices: {REPORT['devices']}  sharded: {REPORT['sharded']}  torch {REPORT['torch']}  TE {REPORT['te']}")
 print(f"self-checks passed: {REPORT.get('smoke_checks_passed')}")
+print(f"WEIGHT FINGERPRINT: {REPORT.get('fingerprint')}   embedding {REPORT.get('embedding_sig')}")
+dt = REPORT.get('dead_tail', {})
+if dt:
+    print(f"dead blocks: {dt.get('n_dead_blocks')} of {REPORT['n_blocks']}, "
+          f"contiguous tail {dt.get('dead_tail')}"
+          f"{'   *** SUSPICIOUS: weights may not be fully loaded ***' if dt.get('suspicious') else ''}")
 f = REPORT.get('funnel', {})
 if f:
     print(f"\\n1. FUNNEL: dominant block {f['dominant_block']} ({f['dominant_kind']}), "

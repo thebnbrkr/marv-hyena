@@ -505,3 +505,31 @@ def test_device_map_reports_a_single_device_model(hm):
     assert sorted(dm["blocks"]) == list(range(hm.n_blocks))
     assert sum(len(v) for v in dm["by_device"].values()) == hm.n_blocks
     assert dm["embedding"] == dm["unembed"] == dm["devices"][0]
+
+
+# ---------------------------------------------------------------- model identity (20B/40B postmortem)
+def test_model_fingerprint_separates_different_weights(hm):
+    """The check that the 20B/40B scaling runs needed: two different
+    checkpoints must not fingerprint the same."""
+    from marv_hyena import diagnostics
+    a = diagnostics.model_fingerprint(hm)
+    again = diagnostics.model_fingerprint(hm)
+    assert a["fingerprint"] == again["fingerprint"]        # deterministic
+    # perturbing one weight must change it
+    with torch.no_grad():
+        p = next(hm.block(0).parameters())
+        p.add_(1.0)
+    try:
+        assert diagnostics.model_fingerprint(hm)["fingerprint"] != a["fingerprint"]
+    finally:
+        with torch.no_grad():
+            p.sub_(1.0)
+    assert diagnostics.model_fingerprint(hm)["fingerprint"] == a["fingerprint"]
+
+
+def test_find_dead_tail_is_quiet_on_a_working_model(hm, seq):
+    from marv_hyena import diagnostics
+    d = diagnostics.find_dead_tail(hm, seq)
+    assert d["largest_write"] > 0
+    assert d["suspicious"] is False, d
+    assert d["dead_tail"] <= max(2, hm.n_blocks // 10)

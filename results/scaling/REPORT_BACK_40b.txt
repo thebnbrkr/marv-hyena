@@ -1,0 +1,40 @@
+==============================================================================
+REPORT BACK  --  marv-hyena scaling test, evo2_40b
+==============================================================================
+mode: quick   biology stage: skipped
+blocks: 50  hidden: 8192  attention at: [3, 10, 17, 24, 31, 35, 42, 49]
+devices: 8  sharded: True  torch 2.7.0a0+79aa17489c.nv25.04  TE 2.2.0+c55e425
+self-checks passed: True
+
+1. FUNNEL: dominant block 23 (li), 26 from the end
+   largest/second = 2.83   (7B: ~1.2e5)
+   share of final residual = 0.923310   (7B: 1.000000)
+2. ABLATE block 49 (attn): max logit change 0.000e+00  BIT-IDENTICAL
+2. ABLATE block 48 (li): max logit change 0.000e+00  BIT-IDENTICAL
+2. ABLATE block 23 (li): max logit change 1.869e+01
+
+4. LOAD-BEARING (health < 0.5 on all 2 sets): [0, 1, 2, 21, 23]
+   by operator type: {'se': 2, 'mr': 1, 'li': 2}   (7B: 2 se, 2 mr, 2 li, 0 attn)
+   baseline health: [0.951, 0.865]
+
+3. COPYING (mean second-copy accuracy; chance = 0.25)
+   -attn                            gap    100  0.261  health 0.760
+   -attn                            gap   1000  0.264  health 0.760
+   -li (keep L0,1,2,21,23)          gap    100  0.981  health 0.643
+   -li (keep L0,1,2,21,23)          gap   1000  0.953  health 0.643
+   -mr (keep L0,1,2,21,23)          gap    100  1.000  health 0.603
+   -mr (keep L0,1,2,21,23)          gap   1000  1.000  health 0.603
+   -se (keep L0,1,2,21,23)          gap    100  0.992  health 0.573
+   -se (keep L0,1,2,21,23)          gap   1000  0.994  health 0.573
+   none                             gap    100  1.000  health 0.951
+   none                             gap   1000  1.000  health 0.951
+
+5. READING FRAME (descriptive; read with the health column)
+   -mr (keep L0,1,2,21,23)          periodicity +0.0810  health 0.507
+   -attn                            periodicity +0.1306  health 0.553
+   -se (keep L0,1,2,21,23)          periodicity +0.1418  health 0.513
+   -li (keep L0,1,2,21,23)          periodicity +0.1521  health 0.506
+   none                             periodicity +0.2235  health 0.784
+==============================================================================
+ALSO SEND: ./marv_hyena_evo2_40b_out/results_evo2_40b.json  (4120 bytes)
+==============================================================================

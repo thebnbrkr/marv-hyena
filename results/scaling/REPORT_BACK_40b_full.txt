@@ -1,0 +1,50 @@
+==============================================================================
+REPORT BACK  --  marv-hyena scaling test, evo2_40b
+==============================================================================
+mode: full   biology stage: run
+blocks: 50  hidden: 8192  attention at: [3, 10, 17, 24, 31, 35, 42, 49]
+devices: 8  sharded: True  torch 2.7.0a0+79aa17489c.nv25.04  TE 2.2.0+c55e425
+self-checks passed: True
+
+1. FUNNEL: dominant block 23 (li), 26 from the end
+   largest/second = 2.1   (7B: ~1.2e5)
+   share of final residual = 0.926809   (7B: 1.000000)
+2. ABLATE block 49 (attn): max logit change 0.000e+00  BIT-IDENTICAL
+2. ABLATE block 48 (li): max logit change 0.000e+00  BIT-IDENTICAL
+2. ABLATE block 23 (li): max logit change 1.869e+01
+
+4. LOAD-BEARING (health < 0.5 on all 5 sets): [0, 1, 2, 21, 23]
+   by operator type: {'se': 2, 'mr': 1, 'li': 2}   (7B: 2 se, 2 mr, 2 li, 0 attn)
+   baseline health: [0.944, 0.947, 0.951, 0.865, 0.942]
+
+3. COPYING (mean second-copy accuracy; chance = 0.25)
+   -attn                            gap    100  0.259  health 0.820
+   -attn                            gap   1000  0.263  health 0.820
+   -attn                            gap  10000  0.263  health 0.820
+   -li (keep L0,1,2,21,23)          gap    100  0.994  health 0.690
+   -li (keep L0,1,2,21,23)          gap   1000  0.983  health 0.690
+   -li (keep L0,1,2,21,23)          gap  10000  0.943  health 0.690
+   -mr (keep L0,1,2,21,23)          gap    100  1.000  health 0.656
+   -mr (keep L0,1,2,21,23)          gap   1000  1.000  health 0.656
+   -mr (keep L0,1,2,21,23)          gap  10000  1.000  health 0.656
+   -se (keep L0,1,2,21,23)          gap    100  0.999  health 0.639
+   -se (keep L0,1,2,21,23)          gap   1000  0.992  health 0.639
+   -se (keep L0,1,2,21,23)          gap  10000  0.995  health 0.639
+   none                             gap    100  1.000  health 0.944
+   none                             gap   1000  1.000  health 0.944
+   none                             gap  10000  1.000  health 0.944
+
+5. READING FRAME (descriptive; read with the health column)
+   -mr (keep L0,1,2,21,23)          periodicity +0.1262  health 0.507
+   -se (keep L0,1,2,21,23)          periodicity +0.1406  health 0.513
+   -li (keep L0,1,2,21,23)          periodicity +0.1617  health 0.506
+   none                             periodicity +0.1739  health 0.784
+   -attn                            periodicity +0.1748  health 0.553
+
+6. BIOLOGY
+   matched        n= 60  b_more=0.850  p=3.09e-08  SE share of peaks=0.48333333333333334
+   fourfold       n= 60  b_more=0.633  p=0.0519  SE share of peaks=0.13333333333333333
+   stop_matched   n= 60  b_more=0.167  p=1.62e-07  SE share of peaks=0.6166666666666667
+==============================================================================
+ALSO SEND: ./marv_hyena_evo2_40b_full_out/results_evo2_40b.json  (6037 bytes)
+==============================================================================

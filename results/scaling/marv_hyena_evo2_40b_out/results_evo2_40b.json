@@ -1,0 +1,248 @@
+{
+ "model": "evo2_40b",
+ "mode": "quick",
+ "n_blocks": 50,
+ "layout": "50 blocks {'se': 14, 'mr': 14, 'li': 14, 'attn': 8}",
+ "devices": 8,
+ "sharded": true,
+ "torch": "2.7.0a0+79aa17489c.nv25.04",
+ "te": "2.2.0+c55e425",
+ "smoke_checks_passed": true,
+ "kinds": [
+  "se",
+  "mr",
+  "li",
+  "attn",
+  "se",
+  "mr",
+  "li",
+  "se",
+  "mr",
+  "li",
+  "attn",
+  "se",
+  "mr",
+  "li",
+  "se",
+  "mr",
+  "li",
+  "attn",
+  "se",
+  "mr",
+  "li",
+  "se",
+  "mr",
+  "li",
+  "attn",
+  "se",
+  "mr",
+  "li",
+  "se",
+  "mr",
+  "li",
+  "attn",
+  "se",
+  "mr",
+  "li",
+  "attn",
+  "se",
+  "mr",
+  "li",
+  "se",
+  "mr",
+  "li",
+  "attn",
+  "se",
+  "mr",
+  "li",
+  "se",
+  "mr",
+  "li",
+  "attn"
+ ],
+ "attn_blocks": [
+  3,
+  10,
+  17,
+  24,
+  31,
+  35,
+  42,
+  49
+ ],
+ "hidden_size": 8192,
+ "funnel": {
+  "dominant_block": 23,
+  "dominant_kind": "li",
+  "from_end": 26,
+  "ratio_top_to_second": 2.832179875026853,
+  "max_share": 0.9233100052040204
+ },
+ "last_block_ablation": [
+  {
+   "block": 49,
+   "kind": "attn",
+   "max_logit_change": 0.0,
+   "bit_identical": true
+  },
+  {
+   "block": 48,
+   "kind": "li",
+   "max_logit_change": 0.0,
+   "bit_identical": true
+  },
+  {
+   "block": 23,
+   "kind": "li",
+   "max_logit_change": 18.6875,
+   "bit_identical": false
+  }
+ ],
+ "load_bearing": {
+  "cutoff": 0.5,
+  "n_sets": 2,
+  "baseline_health": [
+   0.9514041543006897,
+   0.8654456734657288
+  ],
+  "blocks": [
+   0,
+   1,
+   2,
+   21,
+   23
+  ],
+  "by_kind": {
+   "se": 2,
+   "mr": 1,
+   "li": 2
+  }
+ },
+ "conditions": [
+  "none",
+  "-se (keep L0,1,2,21,23)",
+  "-mr (keep L0,1,2,21,23)",
+  "-li (keep L0,1,2,21,23)",
+  "-attn"
+ ],
+ "missing_conditions": [],
+ "copy": [
+  {
+   "condition": "-attn",
+   "gap": 100,
+   "n": 2,
+   "mean_second_acc": 0.2611111178994179,
+   "sd": 0.02357023517136876,
+   "health": 0.7601953744888306
+  },
+  {
+   "condition": "-attn",
+   "gap": 1000,
+   "n": 2,
+   "mean_second_acc": 0.2638888880610466,
+   "sd": 0.027498595407099407,
+   "health": 0.7601953744888306
+  },
+  {
+   "condition": "-li (keep L0,1,2,21,23)",
+   "gap": 100,
+   "n": 2,
+   "mean_second_acc": 0.9805555641651154,
+   "sd": 0.0039283813091549,
+   "health": 0.6434676647186279
+  },
+  {
+   "condition": "-li (keep L0,1,2,21,23)",
+   "gap": 1000,
+   "n": 2,
+   "mean_second_acc": 0.952777773141861,
+   "sd": 0.0117851439274647,
+   "health": 0.6434676647186279
+  },
+  {
+   "condition": "-mr (keep L0,1,2,21,23)",
+   "gap": 100,
+   "n": 2,
+   "mean_second_acc": 1.0,
+   "sd": 0.0,
+   "health": 0.60317462682724
+  },
+  {
+   "condition": "-mr (keep L0,1,2,21,23)",
+   "gap": 1000,
+   "n": 2,
+   "mean_second_acc": 1.0,
+   "sd": 0.0,
+   "health": 0.60317462682724
+  },
+  {
+   "condition": "-se (keep L0,1,2,21,23)",
+   "gap": 100,
+   "n": 2,
+   "mean_second_acc": 0.9916666448116302,
+   "sd": 0.0039283813091549,
+   "health": 0.5731379985809326
+  },
+  {
+   "condition": "-se (keep L0,1,2,21,23)",
+   "gap": 1000,
+   "n": 2,
+   "mean_second_acc": 0.9944444298744202,
+   "sd": 0.0,
+   "health": 0.5731379985809326
+  },
+  {
+   "condition": "none",
+   "gap": 100,
+   "n": 2,
+   "mean_second_acc": 1.0,
+   "sd": 0.0,
+   "health": 0.9514041543006897
+  },
+  {
+   "condition": "none",
+   "gap": 1000,
+   "n": 2,
+   "mean_second_acc": 1.0,
+   "sd": 0.0,
+   "health": 0.9514041543006897
+  }
+ ],
+ "reading_frame": [
+  {
+   "condition": "-mr (keep L0,1,2,21,23)",
+   "n_genes": 2,
+   "mean_periodicity": 0.08099102651856022,
+   "sd": 0.05569080215258344,
+   "health": 0.5066592693328857
+  },
+  {
+   "condition": "-attn",
+   "n_genes": 2,
+   "mean_periodicity": 0.13063744523315646,
+   "sd": 0.06077394110949329,
+   "health": 0.5527191758155823
+  },
+  {
+   "condition": "-se (keep L0,1,2,21,23)",
+   "n_genes": 2,
+   "mean_periodicity": 0.14181625847054716,
+   "sd": 0.04169106931244618,
+   "health": 0.5127636194229126
+  },
+  {
+   "condition": "-li (keep L0,1,2,21,23)",
+   "n_genes": 2,
+   "mean_periodicity": 0.15211179529853502,
+   "sd": 0.07623561908079325,
+   "health": 0.5055493712425232
+  },
+  {
+   "condition": "none",
+   "n_genes": 2,
+   "mean_periodicity": 0.2234888592977104,
+   "sd": 0.13601063805598435,
+   "health": 0.784128725528717
+  }
+ ]
+}

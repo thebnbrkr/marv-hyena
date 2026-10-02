@@ -1303,3 +1303,114 @@ on `fourfold`. **Untestable** if fewer than 30 sites are scored per design.
 pattern is **scale-stable within one model family** — not that it is a property of hybrid architectures
 in general. That would need a differently-trained model, and the only independently-trained Evo 2
 checkpoint (`evo2_1b_base`) also requires Hopper. Both limits belong in the paper.
+
+---
+
+## Scaling outcomes (runs received 2026-10-01): 20B valid, 40B INVALID
+
+Run by a third party on 8×H100 (torch 2.7.0a0+nv25.04, Transformer Engine 2.2.0), quick and full passes
+for both checkpoints. Raw files in `results/scaling/`. The 20B run is sound. **The 40B run is not, and
+its numbers must not be used.**
+
+### The 40B run loaded the wrong weights
+
+All **147** shared `(block, part, region)` write norms are **exactly equal** between the 20B and 40B
+runs — including the embedding, which depends on no block weights at all:
+
+| quantity | 20B | 40B |
+|---|---|---|
+| embedding write norm | 2.15377 | **2.15377** |
+| block 23 LI mixer | 6.747e+17 | **6.747e+17** |
+| block 21 SE mlp | 1.111e+05 | **1.111e+05** |
+| block 22 MR mlp | 3.688e+04 | **3.688e+04** |
+| baseline health, 5 sets | 0.944 0.947 0.951 0.866 0.943 | 0.944 0.947 0.951 0.865 0.942 |
+| load-bearing blocks | [0, 1, 2, 21, 23] | **[0, 1, 2, 21, 23]** |
+
+Two separately trained checkpoints cannot agree to six significant figures on the embedding. And in the
+40B run, **ablating any of blocks 24–49 leaves health exactly at baseline** (median 0.9441 against a
+baseline of 0.944): 26 of 50 blocks do nothing at all, writing 1e-13 to 0.04 against block 23's 6.7e17.
+
+Reading the logs: the 40B loaded `/work/hf_cache/evo2_40b.pt`, reported as a pre-existing "merged
+file", and built the correct 50-block skeleton (14 se, 14 mr, 14 li, 8 attn) across 8 GPUs. The 20B
+loaded `evo2_20b.pt` and built 24 blocks (7/7/7/3). So the configs were right and the shapes were
+right. **The most consistent explanation is that the merged `evo2_40b.pt` does not contain the 40B
+weights**: a 50-block skeleton received another checkpoint's 24 blocks, and blocks 24–49 kept their
+initialisation. Every observation follows from that, including why the output still looked healthy —
+the funnel at block 23 means nothing downstream of it reaches the logits anyway.
+
+**Why nothing caught it.** The smoke checks verify that the measurement is an exact decomposition of
+*whatever model is loaded*, not that the model is the one requested. The config, block count, device
+map and reconstruction error were all correct. Nothing looked at weight **values**.
+
+Now fixed, and both checks print in Stage 0 and in the report block:
+- `diagnostics.model_fingerprint` — a hash over the embedding and a spread of block tensors. Two
+  checkpoints giving one fingerprint is the whole diagnosis, immediately.
+- `diagnostics.find_dead_tail` — flags a long contiguous run of final blocks whose writes are
+  negligible. Applied to the delivered data it marks the 40B suspicious (dead tail 15, threshold 5)
+  and clears the 20B (dead tail 0).
+
+**To settle it, the run needs:** `ls -l` on the cache (40B in bf16 is ~80 GB, 20B ~40 GB — a ~40 GB
+`evo2_40b.pt` is the answer on its own), the fingerprint from each checkpoint, and a re-merge of the
+40B shards before any re-run.
+
+### P36 — CONFIRMED on 20B (40B not assessed)
+
+Dominant block **23 of 24 (LI)**, in the last quarter ✓, a Hyena block ✓, largest-to-second ratio
+**1.07e13** against the required 10³ ✓, share of the final residual **1.000000** against > 0.99 ✓.
+
+The funnel is **not** a 7B quirk. It is stronger at 20B than at 7B (1e13 against 1.2e5), and it sits at
+the very last block rather than the second-to-last.
+
+### P37 — REFUTED on 20B, informatively
+
+Ablating the final block changes the logits by **16.5**, far above the 10⁻² predicted. The reason is
+P36: in 20B the funnel *is* the final block, so there is no dead tail to find. In 7B the funnel sat at
+block 30 of 32 and block 31 was inert. **"The last block is inert" was a 7B accident of where the
+funnel landed**, not a general property. The general statement is the funnel itself: everything
+*downstream* of the dominant block is numerically dead, and in 20B there is nothing downstream.
+
+### P38 — CONFIRMED on 20B
+
+| condition | gap 100 | 1,000 | 10,000 | health |
+|---|---|---|---|---|
+| unablated | 1.000 | 1.000 | 1.000 | 0.944 |
+| **attention ablated** | **0.260** | **0.265** | **0.263** | 0.820 |
+| −LI | 0.995 | 0.983 | 0.943 | 0.689 |
+| −MR | 1.000 | 1.000 | 1.000 | 0.655 |
+| −SE | 0.999 | 0.992 | 0.995 | 0.639 |
+
+Attention-ablated accuracy is at chance (0.25) at every gap, with health still 0.820 — so the model is
+not merely broken. Predicted < 0.40 with unablated > 0.90: both met, with room.
+
+**But P31's 7B result does not replicate.** At 20B, removing LI costs almost nothing even at a
+10,000-letter gap (0.943 against 1.000), where 7B fell to 0.556. LI's long-range contribution looks
+like a 7B property, not an architectural one — the clearest difference between the two scales.
+
+### P39 — CONFIRMED on 20B
+
+Load-bearing blocks: **0 (se), 1 (mr), 2 (li), 21 (se), 23 (li)** — by family 2 se, 1 mr, 2 li, and
+**zero attention**. Attention block health never falls below 0.5 (block 3: 0.857–0.931; block 10:
+0.676–0.871; block 17: 0.851–0.927). Every Hyena family represented ✓, no attention ✓.
+
+Note MR has only one here against two in 7B, and the load-bearing set is front-loaded (0, 1, 2) plus
+the funnel's neighbourhood (21, 23).
+
+### P40 — PARTLY CONFIRMED on 20B (3 of 4 clauses)
+
+| clause | required | 20B | |
+|---|---|---|---|
+| `matched`: protein change more disruptive | ≥ 60% | **81.7%** (n = 60, p = 7.6e-7) | ✓ |
+| `fourfold`: no protein change | within 10 pts of 50% | 58.3% (p = 0.245) | ✓ |
+| `stop_matched`: the stop wins | ≥ 85% | **81.7%** | ✗ (short by 3.3) |
+| SE share of peaks, matched − fourfold | ≥ 20 pts | 58.3% − 13.3% = **45 pts** | ✓ |
+
+Not refuted (that needed `matched` ≤ 55% or an SE gap within 10 points). **The amino-acid effect and
+its SE localisation both hold at 20B, and more strongly than at 7B** (81.7% against 72.0%; SE gap 45
+points against 7B's size-matched 38). The stop clause falls just short of a threshold set from 7B's
+93%.
+
+### What still cannot be said
+
+Only one additional checkpoint has been measured. 20B shares Evo 2's corpus and the StripedHyena 2
+architecture, so this shows the pattern is **scale-stable within one model family**. The 40B rerun and
+an independently trained model both remain open.
