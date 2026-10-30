@@ -138,6 +138,10 @@ Caveats we hold ourselves to:
   [`notebooks/marv_hyena_round6_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round6_colab.ipynb).
 - **Round 5b** (block 0's null model, done properly):
   [`notebooks/marv_hyena_round5b_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_round5b_colab.ipynb).
+- **0.2 tools on the real model** (gate capture, band ablation, gate freezing, results table; checks first,
+  then two exploratory questions: does LI's long-range help travel through its far lags, and does
+  input-dependent gating matter?):
+  [`notebooks/marv_hyena_gates_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_gates_colab.ipynb).
 
 
 Open [`notebooks/marv_hyena_colab.ipynb`](notebooks/marv_hyena_colab.ipynb) with the badge above. Choose
