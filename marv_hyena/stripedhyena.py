@@ -50,13 +50,18 @@ _STANDIN_MARKER = "_marv_attention_standin"
 
 
 # ---------------------------------------------------------------- attention stand-in
-def _rotate(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-    """Non-interleaved rotary embedding (flash_attn's default): the first and
-    second halves of the rotary dims form the pairs. x (B, L, heads, d)."""
+def _rotate(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, interleaved: bool = False) -> torch.Tensor:
+    """Rotary embedding on x (B, L, heads, d). Non-interleaved (flash_attn's
+    default, what the Hub code asks for): dims i and i + r/2 form a pair.
+    Interleaved (GPT-J style): dims 2i and 2i+1 form a pair."""
     r = 2 * cos.shape[-1]
-    x1, x2 = x[..., : r // 2].float(), x[..., r // 2: r].float()
     c, s = cos[None, :, None, :], sin[None, :, None, :]
-    rot = torch.cat([x1 * c - x2 * s, x2 * c + x1 * s], dim=-1).to(x.dtype)
+    if interleaved:
+        x1, x2 = x[..., 0:r:2].float(), x[..., 1:r:2].float()
+        rot = torch.stack([x1 * c - x2 * s, x2 * c + x1 * s], dim=-1).flatten(-2).to(x.dtype)
+    else:
+        x1, x2 = x[..., : r // 2].float(), x[..., r // 2: r].float()
+        rot = torch.cat([x1 * c - x2 * s, x2 * c + x1 * s], dim=-1).to(x.dtype)
     return torch.cat([rot, x[..., r:]], dim=-1)
 
 
@@ -80,7 +85,8 @@ class MHA(nn.Module):
     """Stand-in for flash_attn.modules.mha.MHA (self-attention, causal, GQA)."""
 
     def __init__(self, embed_dim, num_heads, num_heads_kv=None, rotary_emb_dim=0, qkv_proj_bias=True,
-                 rotary_emb_base=10000.0, causal=True, layer_idx=None, out_proj_bias=True, **_unused):
+                 rotary_emb_base=10000.0, causal=True, layer_idx=None, out_proj_bias=True,
+                 rotary_emb_interleaved=False, **_unused):
         super().__init__()
         if not causal:
             raise NotImplementedError("the stand-in implements causal self-attention only")
@@ -92,6 +98,7 @@ class MHA(nn.Module):
         self.Wqkv = nn.Linear(embed_dim, qkv_dim, bias=qkv_proj_bias)
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=out_proj_bias)
         self.rotary_emb = RotaryEmbedding(rotary_emb_dim, rotary_emb_base) if rotary_emb_dim > 0 else None
+        self.rotary_interleaved = rotary_emb_interleaved
 
     def forward(self, x, inference_params=None, **_unused):
         if inference_params is not None:
@@ -104,12 +111,24 @@ class MHA(nn.Module):
         k, v = kv[:, :, 0], kv[:, :, 1]
         if self.rotary_emb is not None:
             cos, sin = self.rotary_emb.cos_sin(L, x.device)
-            q, k = _rotate(q, cos, sin), _rotate(k, cos, sin)
+            q, k = (_rotate(t, cos, sin, self.rotary_interleaved) for t in (q, k))
         q, k, v = (t.transpose(1, 2) for t in (q, k, v))  # (B, heads, L, hd)
         if nkv != nh:
             k, v = k.repeat_interleave(nh // nkv, dim=1), v.repeat_interleave(nh // nkv, dim=1)
         out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         return self.out_proj(out.transpose(1, 2).reshape(B, L, nh * hd))
+
+
+def set_rotary_interleaved(hm, interleaved: bool) -> int:
+    """Switch every attention stand-in in the model between the two rotary
+    conventions (a diagnostic: the Hub code asks for non-interleaved). Returns
+    how many attention modules were switched."""
+    n = 0
+    for m in hm.model.modules():
+        if isinstance(m, MHA):
+            m.rotary_interleaved = bool(interleaved)
+            n += 1
+    return n
 
 
 def flash_attn_mha_available() -> bool:

@@ -63,9 +63,10 @@ def test_reach_table_reads_complex_poles(sh):
     assert np.allclose(k_grid, k_model, atol=1e-5)
 
 
-def _reference_attention(mha, x):
+def _reference_attention(mha, x, interleaved=False):
     """Independent re-derivation: rotary as complex rotation of (x_i, x_{i+d/2})
-    pairs, explicit causal softmax, kv head = q head // group."""
+    pairs (or (x_2i, x_2i+1) when interleaved), explicit causal softmax,
+    kv head = q head // group."""
     B, L, _ = x.shape
     nh, nkv, hd = mha.num_heads, mha.num_heads_kv, mha.head_dim
     W = mha.Wqkv.weight
@@ -77,6 +78,9 @@ def _reference_attention(mha, x):
     rot = torch.polar(torch.ones_like(angle), angle)[None, :, None, :]
 
     def rotate(t):
+        if interleaved:
+            z = torch.complex(t[..., 0::2], t[..., 1::2]) * rot
+            return torch.stack([z.real, z.imag], dim=-1).flatten(-2)
         z = torch.complex(t[..., : hd // 2], t[..., hd // 2:]) * rot
         return torch.cat([z.real, z.imag], dim=-1)
 
@@ -90,13 +94,25 @@ def _reference_attention(mha, x):
     return mha.out_proj(out.reshape(B, L, nh * hd))
 
 
-def test_attention_standin_matches_reference():
+@pytest.mark.parametrize("interleaved", [False, True])
+def test_attention_standin_matches_reference(interleaved):
     torch.manual_seed(0)
     mha = stripedhyena.MHA(32, num_heads=4, num_heads_kv=2, rotary_emb_dim=8, qkv_proj_bias=False,
-                           rotary_emb_base=500000, out_proj_bias=False)
+                           rotary_emb_base=10000, out_proj_bias=False, rotary_emb_interleaved=interleaved)
     x = torch.randn(1, 40, 32)
     with torch.no_grad():
-        assert torch.allclose(mha(x), _reference_attention(mha, x), atol=1e-5)
+        assert torch.allclose(mha(x), _reference_attention(mha, x, interleaved), atol=1e-5)
+        assert not torch.allclose(mha(x), _reference_attention(mha, x, not interleaved), atol=1e-3)
+
+
+def test_switching_rotary_convention(sh):
+    ids = sh.ids(TEXT)
+    before = sh.logits(ids)
+    assert stripedhyena.set_rotary_interleaved(sh, True) == 3
+    switched = sh.logits(ids)
+    assert stripedhyena.set_rotary_interleaved(sh, False) == 3
+    assert not torch.allclose(before, switched)
+    assert torch.equal(before, sh.logits(ids))
 
 
 def test_standin_answers_the_flash_attn_import():
