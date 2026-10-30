@@ -92,7 +92,7 @@ def _parts(hm: HyenaModel, block: int, filt, z: torch.Tensor) -> _Parts:
 
 
 def _rel(recon: torch.Tensor, actual: torch.Tensor) -> float:
-    return float((recon - actual).norm() / actual.norm().clamp_min(1e-12))
+    return float(((recon - actual).norm() / actual.norm().clamp_min(1e-12)).detach())
 
 
 def _check_block(hm: HyenaModel, block: int) -> None:

@@ -34,6 +34,7 @@ class _Checks:
         return ok
 
 
+@torch.no_grad()
 def _operator_checks(hm: HyenaModel, ids: torch.Tensor, check: _Checks, tol: float) -> None:
     L = ids.shape[1]
     w = capture_writes(hm, ids, [L // 2, L - 1])
@@ -66,6 +67,7 @@ def _operator_checks(hm: HyenaModel, ids: torch.Tensor, check: _Checks, tol: flo
               f"rel_err={err:.2e}")
 
 
+@torch.no_grad()
 def _hook_checks(hm: HyenaModel, ids: torch.Tensor, check: _Checks) -> None:
     before = hm.logits(ids)
     means = mean_writes(hm, ids, mixers_of(hm, "li"))

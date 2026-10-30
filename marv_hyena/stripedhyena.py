@@ -182,7 +182,8 @@ def build(code_dir: str | Path, config: dict, state_dict: dict, dtype=torch.bflo
         for name, p in model.named_parameters():
             if "poles" not in name and "residues" not in name:
                 p.data = p.data.to(dtype)
-    return model.eval()
+    # analysis only: without this every hooked forward pass outside no_grad builds an autograd graph
+    return model.eval().requires_grad_(False)
 
 
 def load(repo: str = REPO, path: str | None = None, device: str = "cuda", revision: str | None = None,
@@ -205,7 +206,9 @@ def load(repo: str = REPO, path: str | None = None, device: str = "cuda", revisi
             state[k[len("backbone."):] if k.startswith("backbone.") else k] = v
     model = build(path, config, state, dtype=dtype)
     if tokenizer is True:
-        from transformers import AutoTokenizer
+        # the class tokenizer_config.json names, loaded directly: AutoTokenizer would read the
+        # config's auto_map and stop to ask whether to run the repo's custom code
+        from transformers import LlamaTokenizerFast
 
-        tokenizer = AutoTokenizer.from_pretrained(path)
+        tokenizer = LlamaTokenizerFast.from_pretrained(path)
     return HyenaModel(model, tokenizer=tokenizer)
