@@ -175,3 +175,43 @@ def test_standin_answers_the_flash_attn_import():
 
     if not stripedhyena.flash_attn_mha_available():
         assert MHA is stripedhyena.MHA
+
+
+def _bf16_sh():
+    """The tiny model with bf16 weights and float32 poles/residues, like the checkpoint."""
+    m = make_tiny_sh()
+    for n, p in m.named_parameters():
+        if "poles" not in n and "residues" not in n:
+            p.data = p.data.to(torch.bfloat16)
+    return mh.HyenaModel(m, tokenizer=CharTokenizer(64))
+
+
+def test_compute_precision_whole_model():
+    sh16 = _bf16_sh()
+    ids = sh16.ids(TEXT)
+    dtypes = {n: p.dtype for n, p in sh16.model.named_parameters()}
+    before = sh16.logits(ids)
+    # reference: the same bf16-valued weights, built in float32 from the start
+    ref = make_tiny_sh()
+    ref.load_state_dict({k: v.float() if v.is_floating_point() else v for k, v in sh16.model.state_dict().items()})
+    expected = mh.HyenaModel(ref, tokenizer=CharTokenizer(64)).logits(ids)
+    with stripedhyena.compute_precision(sh16, torch.float32):
+        assert all(p.dtype == torch.float32 for p in sh16.model.parameters())
+        during = sh16.logits(ids)
+    assert torch.allclose(during.float(), expected.float(), atol=1e-4)
+    assert not torch.equal(during.float(), before.float())
+    assert {n: p.dtype for n, p in sh16.model.named_parameters()} == dtypes
+    assert torch.equal(before, sh16.logits(ids))
+
+
+def test_compute_precision_some_blocks():
+    sh16 = _bf16_sh()
+    ids = sh16.ids(TEXT)
+    before = sh16.logits(ids)
+    with stripedhyena.compute_precision(sh16, torch.float32, blocks=sh16.blocks_of("li")):
+        assert sh16.block(0).projections.weight.dtype == torch.float32
+        assert sh16.block(1).inner_mha_cls.Wqkv.weight.dtype == torch.bfloat16
+        during = sh16.logits(ids)
+    assert during.dtype == before.dtype and not torch.equal(during, before)
+    assert float((during.float() - before.float()).norm() / before.float().norm()) < 0.05  # bf16 rounding only
+    assert torch.equal(before, sh16.logits(ids))

@@ -1994,6 +1994,28 @@ float32. If training used the bf16 values (or bf16 positions, as GPT-NeoX-style 
 drift from training by ~0.5 rad at position 256, 1.8 at 1,024, 7 at 4,096 — the observed shape. Section 1b now
 compares fp32 / stored-bf16 / fully-bf16 rotary, plus a 1,024-token attention window to locate the damage.
 
+**Run 4: rotary precision and far attention ruled out; the damage starts at ~256.** Stored-bf16 frequencies
+change nothing (4.50 vs 4.50 at full context); fully-bf16 rotary is worse (5.13). A 1,024-token attention
+window does not help (4.42). Finer buckets: 2.61 nats/token over positions 0-128, 2.77 at 128-256, 3.53 at
+256-512, 4.06 at 512-1,024, ~4.5 after. The rise levels off near the Hyena filters' reach99 (~650).
+
+**How the model was made (sources).** Grafted from Mistral 7B: "obtained by fusing components of Mistral and
+Hyena" (hessian.ai). That fits the shapes: 32 layers, 8 KV heads, MLP 14,336, 32k vocabulary; half the layers
+became Hyena. Trained on book-free RedPajama plus long-context data, on sequences up to 32k. Together's blog
+measured perplexity on the *last 2,048 tokens* of Gutenberg books with longer and longer prefixes (our
+truncation test) and reports it falling, saturating at 32k. Model card: "a mixed precision model. Make sure to
+keep your poles and residues in float32, especially for longer prompts."
+
+**Checked in the release (2026-10-30).** Hub code and standalone GitHub code compute the same Hyena filter and
+FFT. Poles and residues are stored F32 in the safetensors. The repo also holds `pytorch-model.bin`, the
+standalone checkpoint, with every Hyena-block weight, norm and embedding in float32. Read remotely by range
+requests: those float32 values are exactly the bf16 ones, so the weights match; the standalone code *builds*
+Hyena blocks in float32, but its generate.py, like the HF wrapper, then casts all but poles/residues to bf16.
+
+**Run 5 (next): compute precision.** Section 1b compares the Hub default with all-float32, Hyena-blocks-float32
+and attention-blocks-float32 (`stripedhyena.compute_precision`), plus two bf16 locators: Hyena filters cut at
+lag 256, and a 256-token attention window.
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.

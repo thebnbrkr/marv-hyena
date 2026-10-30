@@ -37,12 +37,15 @@ import shutil
 import sys
 import tempfile
 import types
+from contextlib import contextmanager
 from glob import glob
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from .hooks import _first, _rebuild
 
 REPO = "togethercomputer/StripedHyena-Hessian-7B"
 CODE_FILES = ("model.py", "layers.py", "engine.py", "cache.py", "utils.py")
@@ -182,6 +185,50 @@ def set_attention_window(hm, window: int | None, keep_first: bool = True) -> int
     for m in mods:
         m.window, m.keep_first = window, keep_first
     return len(mods)
+
+
+def _keeps_fp32(name: str) -> bool:
+    return "poles" in name or "residues" in name
+
+
+@contextmanager
+def compute_precision(hm, dtype=torch.float32, blocks=None):
+    """Diagnostic: run the whole model (blocks=None) or only `blocks` with their
+    parameters cast to `dtype`. Poles and residues stay float32, as always.
+
+    For a subset, each block's input is cast to `dtype` on the way in and its
+    output cast back on the way out, so the residual stream between blocks
+    keeps the model's dtype. On exit every parameter returns to its original
+    dtype; from bf16 that round trip is exact (every bf16 value is a float32
+    value), so the model is unchanged afterwards."""
+    if blocks is None:
+        mods = [hm.model]
+    else:
+        mods = [hm.block(i) for i in blocks]
+    saved = [(p, p.dtype) for m in mods for n, p in m.named_parameters() if not _keeps_fp32(n)]
+    handles = []
+    try:
+        for p, _ in saved:
+            p.data = p.data.to(dtype)
+        if blocks is not None:
+            outer = {}  # block -> the dtype its input arrived in
+
+            def cast_in(m, args, kwargs):
+                outer[m] = args[0].dtype
+                return (args[0].to(dtype), *args[1:]), kwargs
+
+            def cast_out(m, _args, _kwargs, output):
+                return _rebuild(output, _first(output).to(outer[m]))
+
+            for m in mods:
+                handles.append(m.register_forward_pre_hook(cast_in, with_kwargs=True))
+                handles.append(m.register_forward_hook(cast_out, with_kwargs=True))
+        yield
+    finally:
+        for h in handles:
+            h.remove()
+        for p, dt in saved:
+            p.data = p.data.to(dt)
 
 
 def flash_attn_mha_available() -> bool:
