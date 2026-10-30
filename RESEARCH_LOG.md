@@ -1970,6 +1970,30 @@ normalisation" sounded sufficient, was repeated from a published paper, and surv
 of contact with the actual block formula — which was sitting in our own `arch.py` docstring the whole
 time.*
 
+## 2026-10-30: The text model (StripedHyena-7B) and its long-context problem
+
+Three QUICK runs of `notebooks/marv_hyena_text_stripedhyena_colab.ipynb` on an 80 GB A100
+(`results/text_sh7b_quick*/`). Every operator check passes (rel. errors 3-5e-3, bf16).
+
+**What holds at short range (500-2,000 tokens).** The model answers Paris / cold / Thursday and copies a
+repeated word list (0.83-0.88). Hyena filters reach ~650 tokens (reach99), uniformly across depth. Removing
+every Hyena lag beyond 1,024 changes neither copying nor the model's health. Removing attention kills copying,
+but also breaks the model (health +2.0 nats), so that is not a clean attribution.
+
+**The problem.** Loss is 3.58 nats/token over positions 0-1,024 and ~4.5 at every later position. The same
+last 1,024 tokens of a passage score 3.25 with nothing before them and 4.21 with 1,024 tokens before them:
+earlier text makes predictions worse. Copying falls to 0.24 at 4,000 tokens. The model card says it was
+trained to 32k. Searches found nobody reporting this (HF discussions, GitHub issues #19, #20).
+
+**Ruled out (run 3): the rotary pairing.** Switching every attention layer to the interleaved convention is
+much worse everywhere (5.16 on positions 0-1,024; copy 0.07 at 2,000), so the Hub's non-interleaved pairing
+is right.
+
+**Next suspect: rotary precision.** The checkpoint stores inv_freq in bf16; flash-attn recomputes it in
+float32. If training used the bf16 values (or bf16 positions, as GPT-NeoX-style code does in bf16), angles
+drift from training by ~0.5 rad at position 256, 1.8 at 1,024, 7 at 4,096 — the observed shape. Section 1b now
+compares fp32 / stored-bf16 / fully-bf16 rotary, plus a 1,024-token attention window to locate the damage.
+
 ## Glossary
 
 - **Residual stream**: the shared log every block appends to. The final guess reads it.

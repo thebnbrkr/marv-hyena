@@ -65,18 +65,33 @@ def _rotate(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, interleaved: 
     return torch.cat([rot, x[..., r:]], dim=-1)
 
 
+ROTARY_PRECISIONS = ("fp32", "stored", "bf16")
+
+
 class RotaryEmbedding(nn.Module):
     def __init__(self, dim: int, base: float = 10000.0):
         super().__init__()
         self.dim, self.base = dim, float(base)
+        self.precision = "fp32"
         self.register_buffer("inv_freq", self._inv_freq(None), persistent=False)
 
     def _inv_freq(self, device) -> torch.Tensor:
         return 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.float32, device=device) / self.dim))
 
     def cos_sin(self, L: int, device) -> tuple[torch.Tensor, torch.Tensor]:
-        # like flash_attn with pos_idx_in_fp32: a stored non-fp32 inv_freq is recomputed in fp32
-        inv = self.inv_freq if self.inv_freq.dtype == torch.float32 else self._inv_freq(device)
+        """precision 'fp32' (flash_attn with pos_idx_in_fp32, what the Hub code runs): a stored
+        non-fp32 inv_freq is recomputed in fp32. 'stored': fp32 positions times the inv_freq
+        as loaded from the checkpoint (bf16 there). 'bf16': positions, frequencies, their
+        product and cos/sin all in bf16, as GPT-NeoX-style code computes them once a model
+        is cast to bf16. The last two are diagnostics only."""
+        if self.precision == "bf16":
+            inv = self.inv_freq.to(device=device, dtype=torch.bfloat16)
+            freqs = torch.arange(L, device=device).to(torch.bfloat16)[:, None] * inv[None, :]
+            return freqs.cos().float(), freqs.sin().float()
+        if self.precision == "stored":
+            inv = self.inv_freq.to(device=device, dtype=torch.float32)
+        else:
+            inv = self.inv_freq if self.inv_freq.dtype == torch.float32 else self._inv_freq(device)
         freqs = torch.outer(torch.arange(L, device=device, dtype=torch.float32), inv.to(device))
         return freqs.cos(), freqs.sin()
 
@@ -99,6 +114,7 @@ class MHA(nn.Module):
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=out_proj_bias)
         self.rotary_emb = RotaryEmbedding(rotary_emb_dim, rotary_emb_base) if rotary_emb_dim > 0 else None
         self.rotary_interleaved = rotary_emb_interleaved
+        self.window, self.keep_first = None, True  # diagnostic: local attention (see set_attention_window)
 
     def forward(self, x, inference_params=None, **_unused):
         if inference_params is not None:
@@ -115,20 +131,57 @@ class MHA(nn.Module):
         q, k, v = (t.transpose(1, 2) for t in (q, k, v))  # (B, heads, L, hd)
         if nkv != nh:
             k, v = k.repeat_interleave(nh // nkv, dim=1), v.repeat_interleave(nh // nkv, dim=1)
-        out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        if self.window is None:
+            out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        else:
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=self._local_mask(L, x.device))
         return self.out_proj(out.transpose(1, 2).reshape(B, L, nh * hd))
+
+    def _local_mask(self, L: int, device) -> torch.Tensor:
+        """(L, L) bool, True = may attend: causal, at most `window` positions back
+        (the token itself included), plus position 0 if keep_first."""
+        i = torch.arange(L, device=device)
+        back = i[:, None] - i[None, :]
+        allowed = (back >= 0) & (back < self.window)
+        if self.keep_first:
+            allowed[:, 0] = True
+        return allowed
+
+
+def attention_modules(hm) -> list[MHA]:
+    return [m for m in hm.model.modules() if isinstance(m, MHA)]
 
 
 def set_rotary_interleaved(hm, interleaved: bool) -> int:
     """Switch every attention stand-in in the model between the two rotary
     conventions (a diagnostic: the Hub code asks for non-interleaved). Returns
     how many attention modules were switched."""
-    n = 0
-    for m in hm.model.modules():
-        if isinstance(m, MHA):
-            m.rotary_interleaved = bool(interleaved)
-            n += 1
-    return n
+    mods = attention_modules(hm)
+    for m in mods:
+        m.rotary_interleaved = bool(interleaved)
+    return len(mods)
+
+
+def set_rotary_precision(hm, precision: str = "fp32") -> int:
+    """How every attention stand-in computes its rotary angles (one of
+    ROTARY_PRECISIONS; see RotaryEmbedding.cos_sin). 'fp32' is the Hub
+    behaviour. Returns how many attention modules were switched."""
+    if precision not in ROTARY_PRECISIONS:
+        raise ValueError(f"precision must be one of {ROTARY_PRECISIONS}, got {precision!r}")
+    mods = attention_modules(hm)
+    for m in mods:
+        m.rotary_emb.precision = precision
+    return len(mods)
+
+
+def set_attention_window(hm, window: int | None, keep_first: bool = True) -> int:
+    """Diagnostic: let every attention layer see only the last `window`
+    positions (plus position 0, the usual attention sink, if keep_first).
+    None restores full causal attention. Returns how many modules changed."""
+    mods = attention_modules(hm)
+    for m in mods:
+        m.window, m.keep_first = window, keep_first
+    return len(mods)
 
 
 def flash_attn_mha_available() -> bool:

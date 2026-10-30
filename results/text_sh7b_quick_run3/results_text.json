@@ -1,0 +1,854 @@
+{
+ "mode": "quick",
+ "model": "StripedHyena-Hessian-7B",
+ "sanity_nll": 3.42563533782959,
+ "loss_by_position": [
+  {
+   "positions": "0-1024",
+   "nll": 3.582043766975403
+  },
+  {
+   "positions": "1024-2048",
+   "nll": 4.435966968536377
+  },
+  {
+   "positions": "2048-3072",
+   "nll": 4.5043017864227295
+  },
+  {
+   "positions": "3072-4096",
+   "nll": 4.4236931800842285
+  },
+  {
+   "positions": "4096-5120",
+   "nll": 4.529814720153809
+  },
+  {
+   "positions": "5120-6144",
+   "nll": 4.514693021774292
+  },
+  {
+   "positions": "6144-7168",
+   "nll": 4.589463233947754
+  },
+  {
+   "positions": "7168-8192",
+   "nll": 4.500341415405273
+  }
+ ],
+ "diagnostic": {
+  "non-interleaved (Hub code)": {
+   "by_position": {
+    "0-1024": 3.582043766975403,
+    "1024-2048": 4.435966968536377,
+    "2048-3072": 4.5043017864227295,
+    "3072-4096": 4.4236931800842285,
+    "4096-5120": 4.529814720153809,
+    "5120-6144": 4.514693021774292,
+    "6144-7168": 4.589463233947754,
+    "7168-8192": 4.500341415405273
+   },
+   "truncation": {
+    "0 tokens of context": 3.2528746128082275,
+    "1024 tokens of context": 4.2144083976745605,
+    "3072 tokens of context": 4.38096284866333,
+    "7168 tokens of context": 4.500341176986694
+   },
+   "copy": {
+    "copy@2000": 0.8318452537059784,
+    "copy@4000": 0.2351190485060215
+   }
+  },
+  "interleaved": {
+   "by_position": {
+    "0-1024": 5.1548075675964355,
+    "1024-2048": 5.70715069770813,
+    "2048-3072": 5.731715679168701,
+    "3072-4096": 5.6694958209991455,
+    "4096-5120": 5.735863924026489,
+    "5120-6144": 5.790332078933716,
+    "6144-7168": 5.831767797470093,
+    "7168-8192": 5.835340261459351
+   },
+   "truncation": {
+    "0 tokens of context": 4.931140422821045,
+    "1024 tokens of context": 5.630606412887573,
+    "3072 tokens of context": 5.671715259552002,
+    "7168 tokens of context": 5.83534049987793
+   },
+   "copy": {
+    "copy@2000": 0.0669642873108387,
+    "copy@4000": 0.0446428582072258
+   }
+  }
+ },
+ "operator_checks_ok": true,
+ "reach": [
+  {
+   "block": 0,
+   "reach50": 91.0,
+   "reach90": 323.0,
+   "reach99": 637.0,
+   "max99": 6128.0
+  },
+  {
+   "block": 2,
+   "reach50": 91.0,
+   "reach90": 322.0,
+   "reach99": 643.0,
+   "max99": 6330.0
+  },
+  {
+   "block": 4,
+   "reach50": 95.0,
+   "reach90": 336.0,
+   "reach99": 669.0,
+   "max99": 6330.0
+  },
+  {
+   "block": 6,
+   "reach50": 99.0,
+   "reach90": 347.0,
+   "reach99": 691.0,
+   "max99": 6330.0
+  },
+  {
+   "block": 8,
+   "reach50": 94.0,
+   "reach90": 327.0,
+   "reach99": 653.0,
+   "max99": 6128.0
+  },
+  {
+   "block": 10,
+   "reach50": 94.0,
+   "reach90": 319.0,
+   "reach99": 632.0,
+   "max99": 6330.0
+  },
+  {
+   "block": 12,
+   "reach50": 99.0,
+   "reach90": 352.0,
+   "reach99": 703.0,
+   "max99": 6330.0
+  },
+  {
+   "block": 14,
+   "reach50": 99.0,
+   "reach90": 354.0,
+   "reach99": 697.0,
+   "max99": 6178.0
+  },
+  {
+   "block": 16,
+   "reach50": 91.0,
+   "reach90": 321.5,
+   "reach99": 637.0,
+   "max99": 6078.0
+  },
+  {
+   "block": 18,
+   "reach50": 91.0,
+   "reach90": 322.0,
+   "reach99": 643.0,
+   "max99": 6382.0
+  },
+  {
+   "block": 20,
+   "reach50": 95.0,
+   "reach90": 336.0,
+   "reach99": 669.0,
+   "max99": 6330.0
+  },
+  {
+   "block": 22,
+   "reach50": 99.0,
+   "reach90": 345.0,
+   "reach99": 691.0,
+   "max99": 6279.0
+  },
+  {
+   "block": 24,
+   "reach50": 93.0,
+   "reach90": 324.0,
+   "reach99": 648.0,
+   "max99": 6128.0
+  },
+  {
+   "block": 26,
+   "reach50": 94.0,
+   "reach90": 317.0,
+   "reach99": 632.0,
+   "max99": 6279.0
+  },
+  {
+   "block": 28,
+   "reach50": 98.0,
+   "reach90": 350.0,
+   "reach99": 697.0,
+   "max99": 6279.0
+  },
+  {
+   "block": 30,
+   "reach50": 97.0,
+   "reach90": 346.0,
+   "reach99": 691.0,
+   "max99": 6178.0
+  }
+ ],
+ "gates": [
+  {
+   "block": 0,
+   "rel_error": 0.003118806518614292,
+   "closed_x2": 0.00177001953125,
+   "closed_x1": 0.002288818359375,
+   "mean_abs_x2": 0.32392409443855286
+  },
+  {
+   "block": 2,
+   "rel_error": 0.0029868995770812035,
+   "closed_x2": 0.004638671875,
+   "closed_x1": 0.005035400390625,
+   "mean_abs_x2": 0.3707895278930664
+  },
+  {
+   "block": 4,
+   "rel_error": 0.003139503998681903,
+   "closed_x2": 0.0042724609375,
+   "closed_x1": 0.005126953125,
+   "mean_abs_x2": 0.38723230361938477
+  },
+  {
+   "block": 6,
+   "rel_error": 0.0031250212341547012,
+   "closed_x2": 0.004364013671875,
+   "closed_x1": 0.004638671875,
+   "mean_abs_x2": 0.4109441936016083
+  },
+  {
+   "block": 8,
+   "rel_error": 0.0030381539836525917,
+   "closed_x2": 0.0047607421875,
+   "closed_x1": 0.004913330078125,
+   "mean_abs_x2": 0.43779969215393066
+  },
+  {
+   "block": 10,
+   "rel_error": 0.0032166577875614166,
+   "closed_x2": 0.00445556640625,
+   "closed_x1": 0.004180908203125,
+   "mean_abs_x2": 0.48990797996520996
+  },
+  {
+   "block": 12,
+   "rel_error": 0.0030308766290545464,
+   "closed_x2": 0.004730224609375,
+   "closed_x1": 0.00445556640625,
+   "mean_abs_x2": 0.5229930281639099
+  },
+  {
+   "block": 14,
+   "rel_error": 0.0032913696486502886,
+   "closed_x2": 0.004425048828125,
+   "closed_x1": 0.00421142578125,
+   "mean_abs_x2": 0.5652772784233093
+  },
+  {
+   "block": 16,
+   "rel_error": 0.003226503264158964,
+   "closed_x2": 0.004852294921875,
+   "closed_x1": 0.00421142578125,
+   "mean_abs_x2": 0.553882360458374
+  },
+  {
+   "block": 18,
+   "rel_error": 0.0033418857492506504,
+   "closed_x2": 0.0048828125,
+   "closed_x1": 0.004302978515625,
+   "mean_abs_x2": 0.6444147825241089
+  },
+  {
+   "block": 20,
+   "rel_error": 0.0033788697328418493,
+   "closed_x2": 0.0048828125,
+   "closed_x1": 0.00445556640625,
+   "mean_abs_x2": 0.6275133490562439
+  },
+  {
+   "block": 22,
+   "rel_error": 0.003341618226841092,
+   "closed_x2": 0.00457763671875,
+   "closed_x1": 0.00537109375,
+   "mean_abs_x2": 0.6336309909820557
+  },
+  {
+   "block": 24,
+   "rel_error": 0.0032987857703119516,
+   "closed_x2": 0.00604248046875,
+   "closed_x1": 0.0045166015625,
+   "mean_abs_x2": 0.6924909353256226
+  },
+  {
+   "block": 26,
+   "rel_error": 0.0033793048933148384,
+   "closed_x2": 0.004974365234375,
+   "closed_x1": 0.005401611328125,
+   "mean_abs_x2": 0.6788188219070435
+  },
+  {
+   "block": 28,
+   "rel_error": 0.0033028293401002884,
+   "closed_x2": 0.004486083984375,
+   "closed_x1": 0.005126953125,
+   "mean_abs_x2": 0.6711602210998535
+  },
+  {
+   "block": 30,
+   "rel_error": 0.003414540085941553,
+   "closed_x2": 0.00445556640625,
+   "closed_x1": 0.00494384765625,
+   "mean_abs_x2": 0.6976398825645447
+  }
+ ],
+ "copy": [
+  {
+   "gap": 500,
+   "seed": 0,
+   "condition": "baseline",
+   "second_acc": 0.9047619104385376,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 2.7555449830840457
+  },
+  {
+   "gap": 500,
+   "seed": 0,
+   "condition": "Hyena mixers ablated",
+   "second_acc": 0.6666666865348816,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 3.917289538261218
+  },
+  {
+   "gap": 500,
+   "seed": 0,
+   "condition": "Hyena far lags (1024+) removed",
+   "second_acc": 0.9047619104385376,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 2.752551652087785
+  },
+  {
+   "gap": 500,
+   "seed": 0,
+   "condition": "Hyena near lags (1-127) removed",
+   "second_acc": 0.738095223903656,
+   "first_acc": 0.095238097012043,
+   "health_nll": 3.2370511568509617
+  },
+  {
+   "gap": 500,
+   "seed": 0,
+   "condition": "attention mixers ablated",
+   "second_acc": 0.0476190485060215,
+   "first_acc": 0.0476190485060215,
+   "health_nll": 4.869832008992165
+  },
+  {
+   "gap": 500,
+   "seed": 1,
+   "condition": "baseline",
+   "second_acc": 0.8541666865348816,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 2.9719739082532053
+  },
+  {
+   "gap": 500,
+   "seed": 1,
+   "condition": "Hyena mixers ablated",
+   "second_acc": 0.6041666865348816,
+   "first_acc": 0.0625,
+   "health_nll": 4.257232057402955
+  },
+  {
+   "gap": 500,
+   "seed": 1,
+   "condition": "Hyena far lags (1024+) removed",
+   "second_acc": 0.875,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 2.9763593972578346
+  },
+  {
+   "gap": 500,
+   "seed": 1,
+   "condition": "Hyena near lags (1-127) removed",
+   "second_acc": 0.8333333134651184,
+   "first_acc": 0.0833333358168602,
+   "health_nll": 3.418545367031695
+  },
+  {
+   "gap": 500,
+   "seed": 1,
+   "condition": "attention mixers ablated",
+   "second_acc": 0.02083333395421505,
+   "first_acc": 0.0625,
+   "health_nll": 4.904598746883903
+  },
+  {
+   "gap": 1000,
+   "seed": 0,
+   "condition": "baseline",
+   "second_acc": 0.8095238208770752,
+   "first_acc": 0.0476190485060215,
+   "health_nll": 2.753283204516115
+  },
+  {
+   "gap": 1000,
+   "seed": 0,
+   "condition": "Hyena mixers ablated",
+   "second_acc": 0.261904776096344,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 3.9155207359553064
+  },
+  {
+   "gap": 1000,
+   "seed": 0,
+   "condition": "Hyena far lags (1024+) removed",
+   "second_acc": 0.8095238208770752,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 2.767094190983351
+  },
+  {
+   "gap": 1000,
+   "seed": 0,
+   "condition": "Hyena near lags (1-127) removed",
+   "second_acc": 0.4047619104385376,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 3.392081844840634
+  },
+  {
+   "gap": 1000,
+   "seed": 0,
+   "condition": "attention mixers ablated",
+   "second_acc": 0.0714285746216774,
+   "first_acc": 0.0476190485060215,
+   "health_nll": 4.869817402288105
+  },
+  {
+   "gap": 1000,
+   "seed": 1,
+   "condition": "baseline",
+   "second_acc": 0.875,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 2.971684208622685
+  },
+  {
+   "gap": 1000,
+   "seed": 1,
+   "condition": "Hyena mixers ablated",
+   "second_acc": 0.7083333134651184,
+   "first_acc": 0.0625,
+   "health_nll": 4.259988203347579
+  },
+  {
+   "gap": 1000,
+   "seed": 1,
+   "condition": "Hyena far lags (1024+) removed",
+   "second_acc": 0.875,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 2.9888717781784186
+  },
+  {
+   "gap": 1000,
+   "seed": 1,
+   "condition": "Hyena near lags (1-127) removed",
+   "second_acc": 0.75,
+   "first_acc": 0.0833333358168602,
+   "health_nll": 3.597267433449074
+  },
+  {
+   "gap": 1000,
+   "seed": 1,
+   "condition": "attention mixers ablated",
+   "second_acc": 0.02083333395421505,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 4.903153726517984
+  },
+  {
+   "gap": 2000,
+   "seed": 0,
+   "condition": "baseline",
+   "second_acc": 0.8095238208770752,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 2.7554656895477208
+  },
+  {
+   "gap": 2000,
+   "seed": 0,
+   "condition": "Hyena mixers ablated",
+   "second_acc": 0.5952380895614624,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 3.9155207359553064
+  },
+  {
+   "gap": 2000,
+   "seed": 0,
+   "condition": "Hyena far lags (1024+) removed",
+   "second_acc": 0.8095238208770752,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 2.7777508249310006
+  },
+  {
+   "gap": 2000,
+   "seed": 0,
+   "condition": "Hyena near lags (1-127) removed",
+   "second_acc": 0.190476194024086,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 3.463314219417735
+  },
+  {
+   "gap": 2000,
+   "seed": 0,
+   "condition": "attention mixers ablated",
+   "second_acc": 0.0714285746216774,
+   "first_acc": 0.0476190485060215,
+   "health_nll": 4.868464195490563
+  },
+  {
+   "gap": 2000,
+   "seed": 1,
+   "condition": "baseline",
+   "second_acc": 0.8541666865348816,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 2.9714105068108974
+  },
+  {
+   "gap": 2000,
+   "seed": 1,
+   "condition": "Hyena mixers ablated",
+   "second_acc": 0.8333333134651184,
+   "first_acc": 0.0625,
+   "health_nll": 4.259988203347579
+  },
+  {
+   "gap": 2000,
+   "seed": 1,
+   "condition": "Hyena far lags (1024+) removed",
+   "second_acc": 0.8541666865348816,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 2.9820361884570867
+  },
+  {
+   "gap": 2000,
+   "seed": 1,
+   "condition": "Hyena near lags (1-127) removed",
+   "second_acc": 0.5833333134651184,
+   "first_acc": 0.0833333358168602,
+   "health_nll": 3.6474212907318377
+  },
+  {
+   "gap": 2000,
+   "seed": 1,
+   "condition": "attention mixers ablated",
+   "second_acc": 0.02083333395421505,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 4.904064558849715
+  },
+  {
+   "gap": 4000,
+   "seed": 0,
+   "condition": "baseline",
+   "second_acc": 0.095238097012043,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 2.7503756009615383
+  },
+  {
+   "gap": 4000,
+   "seed": 0,
+   "condition": "Hyena mixers ablated",
+   "second_acc": 0.190476194024086,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 3.9155207359553064
+  },
+  {
+   "gap": 4000,
+   "seed": 0,
+   "condition": "Hyena far lags (1024+) removed",
+   "second_acc": 0.0714285746216774,
+   "first_acc": 0.095238097012043,
+   "health_nll": 2.7860827323717947
+  },
+  {
+   "gap": 4000,
+   "seed": 0,
+   "condition": "Hyena near lags (1-127) removed",
+   "second_acc": 0.0476190485060215,
+   "first_acc": 0.0714285746216774,
+   "health_nll": 3.5356473134793447
+  },
+  {
+   "gap": 4000,
+   "seed": 0,
+   "condition": "attention mixers ablated",
+   "second_acc": 0.0476190485060215,
+   "first_acc": 0.0476190485060215,
+   "health_nll": 4.868649561520655
+  },
+  {
+   "gap": 4000,
+   "seed": 1,
+   "condition": "baseline",
+   "second_acc": 0.375,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 2.9748166510861824
+  },
+  {
+   "gap": 4000,
+   "seed": 1,
+   "condition": "Hyena mixers ablated",
+   "second_acc": 0.5,
+   "first_acc": 0.0625,
+   "health_nll": 4.259988203347579
+  },
+  {
+   "gap": 4000,
+   "seed": 1,
+   "condition": "Hyena far lags (1024+) removed",
+   "second_acc": 0.4166666567325592,
+   "first_acc": 0.02083333395421505,
+   "health_nll": 2.966059932002315
+  },
+  {
+   "gap": 4000,
+   "seed": 1,
+   "condition": "Hyena near lags (1-127) removed",
+   "second_acc": 0.0833333358168602,
+   "first_acc": 0.0625,
+   "health_nll": 3.713172673499822
+  },
+  {
+   "gap": 4000,
+   "seed": 1,
+   "condition": "attention mixers ablated",
+   "second_acc": 0.02083333395421505,
+   "first_acc": 0.0416666679084301,
+   "health_nll": 4.900574947694088
+  }
+ ],
+ "copy_summary": [
+  {
+   "gap": 500,
+   "condition": "baseline",
+   "n": 2,
+   "copy_acc": 0.8794642984867096,
+   "ci_low": 0.8541666865348816,
+   "ci_high": 0.9047619104385376,
+   "first_list_acc": 0.05654762126505375,
+   "health_change_nll": 0.0
+  },
+  {
+   "gap": 500,
+   "condition": "Hyena mixers ablated",
+   "n": 2,
+   "copy_acc": 0.6354166865348816,
+   "ci_low": 0.6041666865348816,
+   "ci_high": 0.6666666865348816,
+   "first_list_acc": 0.0669642873108387,
+   "health_change_nll": 1.2235013521634612
+  },
+  {
+   "gap": 500,
+   "condition": "Hyena far lags (1024+) removed",
+   "n": 2,
+   "copy_acc": 0.8898809552192688,
+   "ci_low": 0.875,
+   "ci_high": 0.9047619104385376,
+   "first_list_acc": 0.05654762126505375,
+   "health_change_nll": 0.0006960790041843357
+  },
+  {
+   "gap": 500,
+   "condition": "Hyena near lags (1-127) removed",
+   "n": 2,
+   "copy_acc": 0.7857142686843872,
+   "ci_low": 0.738095223903656,
+   "ci_high": 0.8333333134651184,
+   "first_list_acc": 0.0892857164144516,
+   "health_change_nll": 0.46403881627270294
+  },
+  {
+   "gap": 500,
+   "condition": "attention mixers ablated",
+   "n": 2,
+   "copy_acc": 0.034226191230118275,
+   "ci_low": 0.02083333395421505,
+   "ci_high": 0.0476190485060215,
+   "first_list_acc": 0.05505952425301075,
+   "health_change_nll": 2.0234559322694086
+  },
+  {
+   "gap": 1000,
+   "condition": "baseline",
+   "n": 2,
+   "copy_acc": 0.8422619104385376,
+   "ci_low": 0.8095238208770752,
+   "ci_high": 0.875,
+   "first_list_acc": 0.0446428582072258,
+   "health_change_nll": 0.0
+  },
+  {
+   "gap": 1000,
+   "condition": "Hyena mixers ablated",
+   "n": 2,
+   "copy_acc": 0.4851190447807312,
+   "ci_low": 0.261904776096344,
+   "ci_high": 0.7083333134651184,
+   "first_list_acc": 0.0669642873108387,
+   "health_change_nll": 1.2252707630820425
+  },
+  {
+   "gap": 1000,
+   "condition": "Hyena far lags (1024+) removed",
+   "n": 2,
+   "copy_acc": 0.8422619104385376,
+   "ci_low": 0.8095238208770752,
+   "ci_high": 0.875,
+   "first_list_acc": 0.05654762126505375,
+   "health_change_nll": 0.015499278011484874
+  },
+  {
+   "gap": 1000,
+   "condition": "Hyena near lags (1-127) removed",
+   "n": 2,
+   "copy_acc": 0.5773809552192688,
+   "ci_low": 0.4047619104385376,
+   "ci_high": 0.75,
+   "first_list_acc": 0.0773809552192688,
+   "health_change_nll": 0.632190932575454
+  },
+  {
+   "gap": 1000,
+   "condition": "attention mixers ablated",
+   "n": 2,
+   "copy_acc": 0.046130954287946224,
+   "ci_low": 0.02083333395421505,
+   "ci_high": 0.0714285746216774,
+   "first_list_acc": 0.0446428582072258,
+   "health_change_nll": 2.0240018578336447
+  },
+  {
+   "gap": 2000,
+   "condition": "baseline",
+   "n": 2,
+   "copy_acc": 0.8318452537059784,
+   "ci_low": 0.8095238208770752,
+   "ci_high": 0.8541666865348816,
+   "first_list_acc": 0.05654762126505375,
+   "health_change_nll": 0.0
+  },
+  {
+   "gap": 2000,
+   "condition": "Hyena mixers ablated",
+   "n": 2,
+   "copy_acc": 0.7142857015132904,
+   "ci_low": 0.5952380895614624,
+   "ci_high": 0.8333333134651184,
+   "first_list_acc": 0.0669642873108387,
+   "health_change_nll": 1.2243163714721335
+  },
+  {
+   "gap": 2000,
+   "condition": "Hyena far lags (1024+) removed",
+   "n": 2,
+   "copy_acc": 0.8318452537059784,
+   "ci_low": 0.8095238208770752,
+   "ci_high": 0.8541666865348816,
+   "first_list_acc": 0.05654762126505375,
+   "health_change_nll": 0.016455408514734593
+  },
+  {
+   "gap": 2000,
+   "condition": "Hyena near lags (1-127) removed",
+   "n": 2,
+   "copy_acc": 0.3869047537446022,
+   "ci_low": 0.190476194024086,
+   "ci_high": 0.5833333134651184,
+   "first_list_acc": 0.0773809552192688,
+   "health_change_nll": 0.6919296568954774
+  },
+  {
+   "gap": 2000,
+   "condition": "attention mixers ablated",
+   "n": 2,
+   "copy_acc": 0.046130954287946224,
+   "ci_low": 0.02083333395421505,
+   "ci_high": 0.0714285746216774,
+   "first_list_acc": 0.0446428582072258,
+   "health_change_nll": 2.02282627899083
+  },
+  {
+   "gap": 4000,
+   "condition": "baseline",
+   "n": 2,
+   "copy_acc": 0.2351190485060215,
+   "ci_low": 0.095238097012043,
+   "ci_high": 0.375,
+   "first_list_acc": 0.05654762126505375,
+   "health_change_nll": 0.0
+  },
+  {
+   "gap": 4000,
+   "condition": "Hyena mixers ablated",
+   "n": 2,
+   "copy_acc": 0.345238097012043,
+   "ci_low": 0.190476194024086,
+   "ci_high": 0.5,
+   "first_list_acc": 0.0669642873108387,
+   "health_change_nll": 1.2251583436275821
+  },
+  {
+   "gap": 4000,
+   "condition": "Hyena far lags (1024+) removed",
+   "n": 2,
+   "copy_acc": 0.2440476156771183,
+   "ci_low": 0.0714285746216774,
+   "ci_high": 0.4166666567325592,
+   "first_list_acc": 0.058035715483129025,
+   "health_change_nll": 0.01347520616319442
+  },
+  {
+   "gap": 4000,
+   "condition": "Hyena near lags (1-127) removed",
+   "n": 2,
+   "copy_acc": 0.06547619216144085,
+   "ci_low": 0.0476190485060215,
+   "ci_high": 0.0833333358168602,
+   "first_list_acc": 0.0669642873108387,
+   "health_change_nll": 0.7618138674657229
+  },
+  {
+   "gap": 4000,
+   "condition": "attention mixers ablated",
+   "n": 2,
+   "copy_acc": 0.034226191230118275,
+   "ci_low": 0.02083333395421505,
+   "ci_high": 0.0476190485060215,
+   "first_list_acc": 0.0446428582072258,
+   "health_change_nll": 2.0220161285835117
+  }
+ ],
+ "freeze": [
+  {
+   "condition": "Hyena x2 (output gate) frozen",
+   "n_windows": 1,
+   "loss_increase": 0.4892095972803343,
+   "ci_low": NaN,
+   "ci_high": NaN
+  },
+  {
+   "condition": "Hyena x1 (input gate) frozen",
+   "n_windows": 1,
+   "loss_increase": -0.2730367961122733,
+   "ci_low": NaN,
+   "ci_high": NaN
+  }
+ ]
+}
