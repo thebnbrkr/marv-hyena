@@ -2012,9 +2012,21 @@ standalone checkpoint, with every Hyena-block weight, norm and embedding in floa
 requests: those float32 values are exactly the bf16 ones, so the weights match; the standalone code *builds*
 Hyena blocks in float32, but its generate.py, like the HF wrapper, then casts all but poles/residues to bf16.
 
-**Run 5 (next): compute precision.** Section 1b compares the Hub default with all-float32, Hyena-blocks-float32
-and attention-blocks-float32 (`stripedhyena.compute_precision`), plus two bf16 locators: Hyena filters cut at
-lag 256, and a 256-token attention window.
+**Run 5: compute precision ruled out; far context hurts through both mixers.** Section 1b compared the Hub
+default with all-float32, Hyena-blocks-float32 and attention-blocks-float32 (`stripedhyena.compute_precision`),
+plus two bf16 locators. Every float32 setting is within 0.01 nats/token of the default everywhere (4.535 vs
+4.534 at positions 4,096-8,192), so bf16 arithmetic is not the cause.
+- Hyena filters cut at lag 256 lower the loss at every position past 256 by 0.16-0.41 (4.23 vs 4.53 at
+  4,096-8,192; 4.22 vs 4.50 for the last 1,024 tokens after 7,168 of context). Copying mostly survives (0.78
+  at 2,000). So the Hyena filters' tails (lags 256+) add harmful signal. It is not the whole effect: loss
+  still rises from 2.77 to 3.37 at 256-512 and to 4.2 later, and context still costs 1.13 nats/token.
+- A 256-token attention window is worse at positions 256-2,048 (3.64 vs 3.53 at 256-512) and better only
+  beyond 4,096 (4.38 vs 4.53). Attention to tokens beyond 256 helps up to ~2,000 tokens and hurts after.
+- A clue present since run 3: freezing every Hyena input gate (x1) at its mean *lowers* loss by 0.27
+  nats/token over a 4,096-token window. A healthy model should get worse.
+
+**Run 6 (proposed).** Both locators together; a sweep of the Hyena cut (64-1,024) and attention window;
+the Hyena cut one block at a time, to find whether a few blocks carry it; and a second, non-book text.
 
 ## Glossary
 
