@@ -9,6 +9,8 @@ import torch
 from . import motifs
 from .arch import HyenaModel
 from .distance import hyena_distance
+from .gates import band_ablate, capture_gates
+from .hooks import capture_outputs
 from .intervene import mean_ablate, mean_writes, mixers_of
 from .trace import capture_writes, decompose_prediction
 
@@ -37,6 +39,16 @@ def run_smoke_checks(hm: HyenaModel, seq: str, tol: float = 5e-2, verbose: bool 
         b = blocks[len(blocks) // 2]
         r = hyena_distance(hm, ids, b, L - 1)
         check(f"distance bands reconstruct block {b} ({kind})", r.rel_error < tol, f"rel_err={r.rel_error:.2e}")
+        g = capture_gates(hm, ids, [L - 1], blocks=[b])[b]
+        check(f"gates reconstruct block {b} ({kind}): x2 * inner == output", g.rel_error < tol,
+              f"rel_err={g.rel_error:.2e}")
+        with band_ablate(hm, b, r.bands[1], mode="zero", positions=[L - 1]):
+            with capture_outputs(hm, [(b, "mixer")], positions=[L - 1]) as cap:
+                hm.model(ids)
+        expected = r.actual - r.band_writes[1]
+        err = float((cap[(b, "mixer")][0] - expected).norm() / r.actual.norm().clamp_min(1e-12))
+        check(f"band_ablate {r.bands[1]} on block {b} removes exactly distance's band write", err < tol,
+              f"rel_err={err:.2e}")
 
     rf = motifs.receptive_field(hm)
     check("block 0 receptive field small enough to enumerate", rf <= 10, f"measured {rf} letters")

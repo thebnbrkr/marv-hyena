@@ -2,6 +2,8 @@
 from .arch import BASES, KINDS, PARTS, HyenaModel, decode, encode
 from .distance import DEFAULT_BANDS, DistanceResult, distance_profile, hyena_distance, show_profile
 from .filters import Reach, lag_kernel, reach_table, reach_table_from_checkpoint, show_reach
+from .gates import GateCapture, band_ablate, capture_gates, freeze_gate, scale_channels
+from .results import ResultsTable
 from .intervene import (
     PatchSweep,
     kind_groups,
@@ -42,4 +44,4 @@ from .trace import (
 )
 from .variants import Variant, delta_logp, explain_variant, make_variant
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

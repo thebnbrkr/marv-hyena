@@ -57,6 +57,12 @@ Read from Vortex (`vtx` 1.0.8, commit `8b00afe`) `vortex/model/model.py` and
 7. Keep Vortex's Triton kernels (`use_kernels`) off during analysis.
 8. Predictions are pre-registered in `PREDICTIONS.md`. Append outcomes;
    never edit a prediction after its test has run.
+9. **Edits inside an operator check before they run.** `gates.band_ablate`
+   and `gates.freeze_gate` recompute the operator from its input and refuse
+   (raise) if that differs from the real output. They change only the
+   recomputed piece, added to the real output.
+10. Record reported measurements with `results.ResultsTable` (append-only
+    JSONL: effect, interval, n, seed, commit). Never rewrite that file.
 
 ## Build / test
 

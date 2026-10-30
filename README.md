@@ -37,6 +37,8 @@ that checks the claim. This repo is built to check it.
 | `trace` | Which blocks pushed this prediction, and by how much? | **exact** split of the logit difference over every block's write (direct effects) |
 | `distance` | Did the Hyena block use the letter right there, or DNA 30,000 letters back? | **exact** split of a Hyena block's write into lag bands (0, 1–8, 9–127, … 16k+) |
 | `intervene` | What breaks if an operator type is switched off? What carries a mutation's effect? | mean-ablation, activation patching (total effects) |
+| `gates` | What do a Hyena block's gates do? What breaks without one distance band, or without input-dependent gating? | gate capture (x2, x1, v, convolution) with its own reconstruction check; band ablation, gate freezing, channel scaling (total effects) |
+| `results` | Where is every number we measured, with its interval and the commit that produced it? | append-only JSONL table, one row per measurement |
 | `filters` | How far does each Hyena block look, from the weights alone? | reach table; the CPU mode reads the checkpoint with no GPU |
 | `motifs` | What does every first-layer channel detect? | **exact** motif dictionary: all 4⁹ possible inputs enumerated |
 | `sae` | Which operator types build this SAE feature? Edit features in a live forward pass | Goodfire layer-26 SAE: decomposition and error-preserving edits |
