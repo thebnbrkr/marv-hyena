@@ -1,6 +1,6 @@
 [project]
 name = "marv-hyena"
-version = "0.2.0"
+version = "0.3.0"
 description = "MARV-style interpretability for StripedHyena DNA models (Evo 2): exact per-operator trace, lag-band distance decomposition, ablation/patching, weight-read filter reach, first-layer motif enumeration."
 requires-python = ">=3.10"
 dependencies = [

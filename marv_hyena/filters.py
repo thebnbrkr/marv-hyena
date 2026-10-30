@@ -44,7 +44,7 @@ def _fir_to_lag(h: torch.Tensor) -> torch.Tensor:
 def lag_kernel(filt, kind: str, L: int, hidden_size: int) -> tuple[torch.Tensor, torch.Tensor | None]:
     """(k, D): k is (hidden, n_lags) float32 lag-indexed, n_lags <= L."""
     if kind == "li":
-        h, *_ = filt.compute_filter(L, filt.log_poles.device)  # (1, D, L)
+        h, *_ = filt.compute_filter(L, filt.D.device)  # (1, D, L); real also for complex-pole filters
         k = h[0].float()
     elif kind in ("se", "mr"):
         h = filt.h.float()
@@ -81,12 +81,26 @@ def _mass_quantile_lags(lags: np.ndarray, absk: np.ndarray, qs=(0.5, 0.9, 0.99))
 
 def li_kernel_on_grid(log_poles: torch.Tensor, residues: torch.Tensor, t: np.ndarray) -> np.ndarray:
     """Evaluate the implicit LI filter at arbitrary lags without materialising
-    all L of them (so reach out to 1M letters is cheap). -> (C, len(t))."""
-    lp = log_poles.detach().float().cpu().reshape(log_poles.shape[0], -1)  # (C, S)
-    r = residues.detach().float().cpu()  # (C, S)
-    tt = torch.as_tensor(t, dtype=torch.float32)
+    all L of them (so reach out to 1M letters is cheap). -> (C, len(t)).
+    Complex poles/residues (StripedHyena-7B) give the real part, as its compute_filter does."""
+    cplx = log_poles.is_complex() or residues.is_complex()
+    dt = torch.complex64 if cplx else torch.float32
+    lp = log_poles.detach().cpu().to(dt).reshape(log_poles.shape[0], -1)  # (C, S)
+    r = residues.detach().cpu().to(dt).reshape(residues.shape[0], -1)  # (C, S)
+    tt = torch.as_tensor(t, dtype=torch.float32).to(dt)
     out = (r[:, :, None] * torch.exp(lp[:, :, None] * tt[None, None, :])).sum(1)
-    return out.numpy()
+    return (out.real if cplx else out).numpy()
+
+
+def _modal(f) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """(log_poles, residues) of an LI filter: Vortex stores real log_poles; the
+    Hub StripedHyena-7B stores complex poles and residues as (..., 2) real pairs."""
+    if getattr(f, "log_poles", None) is not None:
+        return f.log_poles, f.residues
+    if getattr(f, "poles", None) is not None:
+        return (torch.view_as_complex(f.poles.detach().float()).log(),
+                torch.view_as_complex(f.residues.detach().float()))
+    return None, None
 
 
 def _reach_from_parts(block: int, kind: str, *, h=None, log_poles=None, residues=None,
@@ -95,7 +109,8 @@ def _reach_from_parts(block: int, kind: str, *, h=None, log_poles=None, residues
         grid = np.unique(np.concatenate([np.arange(0, 512), np.geomspace(512, max_len, 512).astype(np.int64)]))
         absk = np.abs(li_kernel_on_grid(log_poles, residues, grid))
         lags = grid
-        if (log_poles.detach().float() > 0).any():
+        growth = log_poles.detach().real if log_poles.is_complex() else log_poles.detach().float()
+        if (growth > 0).any():
             print(f"warning: block {block} has positive log_poles -> growing filter; reach is not meaningful")
     else:
         hh = h.detach().float().cpu()
@@ -116,9 +131,9 @@ def reach_table(hm: HyenaModel, max_len: int = 1_000_000) -> list[Reach]:
         if kind == "attn":
             continue
         f = hm.hyena_filter(b)
-        rows.append(_reach_from_parts(b, kind, h=getattr(f, "h", None), log_poles=getattr(f, "log_poles", None),
-                                      residues=getattr(f, "residues", None), hidden_size=hm.hidden_size,
-                                      max_len=max_len))
+        log_poles, residues = _modal(f)
+        rows.append(_reach_from_parts(b, kind, h=getattr(f, "h", None), log_poles=log_poles,
+                                      residues=residues, hidden_size=hm.hidden_size, max_len=max_len))
     return rows
 
 
@@ -143,6 +158,6 @@ def reach_table_from_checkpoint(state_dict: dict, config: dict, max_len: int = 1
 
 
 def show_reach(rows: list[Reach]) -> None:
-    print(f"{'block':>5} {'kind':>4} {'reach50':>9} {'reach90':>9} {'reach99':>9} {'max99':>9}   (letters)")
+    print(f"{'block':>5} {'kind':>4} {'reach50':>9} {'reach90':>9} {'reach99':>9} {'max99':>9}   (positions back: letters for Evo 2, tokens for text)")
     for r in rows:
         print(f"{r.block:>5} {r.kind:>4} {r.reach50:>9.0f} {r.reach90:>9.0f} {r.reach99:>9.0f} {r.max_reach99:>9.0f}")

@@ -39,6 +39,7 @@ that checks the claim. This repo is built to check it.
 | `intervene` | What breaks if an operator type is switched off? What carries a mutation's effect? | mean-ablation, activation patching (total effects) |
 | `gates` | What do a Hyena block's gates do? What breaks without one distance band, or without input-dependent gating? | gate capture (x2, x1, v, convolution) with its own reconstruction check; band ablation, gate freezing, channel scaling (total effects) |
 | `results` | Where is every number we measured, with its interval and the commit that produced it? | append-only JSONL table, one row per measurement |
+| `stripedhyena` | Do the same tools work on a Hyena model that is not about DNA? | loads StripedHyena-7B (English text) without flash-attn; `checks.run_operator_checks` works on any vocabulary |
 | `filters` | How far does each Hyena block look, from the weights alone? | reach table; the CPU mode reads the checkpoint with no GPU |
 | `motifs` | What does every first-layer channel detect? | **exact** motif dictionary: all 4⁹ possible inputs enumerated |
 | `sae` | Which operator types build this SAE feature? Edit features in a live forward pass | Goodfire layer-26 SAE: decomposition and error-preserving edits |
@@ -142,6 +143,10 @@ Caveats we hold ourselves to:
   then two exploratory questions: does LI's long-range help travel through its far lags, and does
   input-dependent gating matter?):
   [`notebooks/marv_hyena_gates_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_gates_colab.ipynb).
+- **A text Hyena model: StripedHyena-7B** (English, Apache-2.0; no Evo 2, no flash-attn needed): does the
+  model still talk sense, do the tools agree with it, how far its filters reach, and which blocks let it copy a
+  list of words across a gap:
+  [`notebooks/marv_hyena_text_stripedhyena_colab.ipynb`](https://colab.research.google.com/github/thebnbrkr/marv-hyena/blob/main/notebooks/marv_hyena_text_stripedhyena_colab.ipynb).
 
 
 Open [`notebooks/marv_hyena_colab.ipynb`](notebooks/marv_hyena_colab.ipynb) with the badge above. Choose

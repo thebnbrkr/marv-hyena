@@ -74,6 +74,14 @@ python scripts/smoke_test.py          # on the GPU box, real evo2_7b: run before
 New behaviour that can be checked on the tiny model gets a test there,
 preferably an exactness test (decomposition vs real output).
 
+**StripedHyena-7B (text).** `stripedhyena.py` loads the Hub model
+(`togethercomputer/StripedHyena-Hessian-7B`, commit 9ae6335) with a stand-in
+for flash-attn's MHA. Its Hyena blocks are kind "li" with complex modal poles;
+its embedding bypasses hooks (`capture_writes` falls back to a lookup).
+`tests/tiny_hyena.py::make_tiny_sh` transcribes its maths; it was checked
+against the Hub code itself (identical logits, float32). Use
+`checks.run_operator_checks` for it: `run_smoke_checks` is DNA-only.
+
 ## Not in scope (say so if asked)
 
 - Attention-weight-based distance decomposition. Flash attention hides the

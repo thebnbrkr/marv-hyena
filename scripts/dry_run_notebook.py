@@ -6,7 +6,8 @@ what breaks in a notebook is not the model: it is a typo, a wrong column name, a
 dict key collision, a missing variable, an f-string that never terminates. Those
 cost a GPU session each to find, and nothing to find here.
 
-This swaps `HyenaModel.load` for `tests/tiny_hyena.py`'s stand-in, skips the
+This swaps `HyenaModel.load` (Evo 2) and `HyenaModel.load_stripedhyena` (text)
+for `tests/tiny_hyena.py`'s stand-ins, skips the
 install and GPU cells, and executes the rest in order. The numbers it prints are
 meaningless -- the stand-in is small and untrained -- but if it reaches the end,
 the notebook's code is sound.
@@ -98,12 +99,14 @@ def main() -> int:
     import matplotlib
     matplotlib.use("Agg")  # no display, and no blocking on plt.show()
 
-    from tiny_hyena import make_tiny  # noqa: E402  (needs the path above)
+    from tiny_hyena import CharTokenizer, make_tiny, make_tiny_sh  # noqa: E402  (needs the path above)
 
     import marv_hyena as mh  # noqa: E402
 
     # The whole point: never touch the real checkpoint.
     mh.HyenaModel.load = staticmethod(lambda name="tiny", **kw: mh.HyenaModel(make_tiny()))
+    mh.HyenaModel.load_stripedhyena = staticmethod(
+        lambda **kw: mh.HyenaModel(make_tiny_sh(), tokenizer=CharTokenizer(64)))
 
     work = prepare_workdir(args.data)
     os.chdir(work)

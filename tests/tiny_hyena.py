@@ -216,3 +216,164 @@ class StripedHyena(nn.Module):
 def make_tiny(seed: int = 0, **over) -> StripedHyena:
     torch.manual_seed(seed)
     return StripedHyena(tiny_config(**over)).eval()
+
+
+# ---------------------------------------------------------------- StripedHyena-7B (text)
+# Transcribed from the Hub code of togethercomputer/StripedHyena-Hessian-7B
+# (Apache-2.0, commit 9ae6335): model.py ParallelHyenaFilter / ParallelGatedConvBlock,
+# engine.py parallel_fir / parallel_iir, layers.py. Attention is marv_hyena's
+# stand-in for flash_attn's MHA (stripedhyena.py), which the real model also runs
+# under on Colab.
+
+def tiny_sh_config(**over) -> Cfg:
+    c = Cfg(
+        hidden_size=16, num_attention_heads=4, proj_groups=2, vocab_size=64, num_layers=6, eps=1e-5,
+        attn_layer_idxs=[1, 3, 5], hyena_layer_idxs=[0, 2, 4, 6],  # the Hub config also lists one index too many
+        state_size=2, short_filter_length=3, short_filter_bias=True, column_split_hyena=True,
+        hyena_filter_groups=1, inner_mlp_size=24, rotary_emb_base=500000, qkv_proj_bias=False,
+        mha_out_proj_bias=False, tie_embeddings=False, final_norm=True,
+    )
+    c.update(over)
+    return c
+
+
+class SHFilter(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        H = c.hidden_size
+        self.hidden_size, self.state_size = H, c.state_size
+        self.num_attention_heads = c.num_attention_heads
+        self.hidden_size_per_attention_head = H // c.num_attention_heads
+        self.column_split_hyena = c.column_split_hyena
+        self.hyena_filter_groups = c.hyena_filter_groups
+        self.short_filter_length = c.short_filter_length
+        self.D = nn.Parameter(0.2 * torch.randn(H))
+        self.short_filter_weight = nn.Parameter(0.5 * torch.randn(3 * H, 1, c.short_filter_length))
+        self.short_filter_bias = nn.Parameter(0.1 * torch.randn(3 * H))
+        # stable complex poles (|p| < 1) stored as (..., 2) real pairs, as in the checkpoint
+        mag = 0.5 + 0.45 * torch.rand(H, c.state_size, 1)
+        ang = (torch.rand(H, c.state_size, 1) - 0.5) * 2.0
+        self.poles = nn.Parameter(torch.view_as_real(torch.polar(mag, ang)))
+        self.residues = nn.Parameter(0.3 * torch.randn(H, c.state_size, 1, 2))
+
+    def update_time(self, L, device):
+        if not hasattr(self, "t") or self.t.shape[-1] < L:
+            self.t = torch.arange(L, device=device)[None, None]
+        else:
+            self.t = self.t[..., :L]
+
+    def compute_filter(self, L, device):
+        self.update_time(L, device)
+        residues = torch.view_as_complex(self.residues.to(torch.float32))
+        log_poles = torch.view_as_complex(self.poles.to(torch.float32)).log()
+        h = (residues * (log_poles * self.t).exp()).real.sum(1)[None]
+        return h, torch.float32, log_poles, residues
+
+    def forward(self, u, inference_params=None, padding_mask=None):
+        L = u.shape[1]
+        z_pre = F.conv1d(u.permute(0, 2, 1), self.short_filter_weight, self.short_filter_bias, stride=1,
+                         padding=self.short_filter_length - 1, groups=3 * self.hidden_size)[..., :L]
+        h, *_ = self.compute_filter(L, u.device)
+        nh, hd = self.num_attention_heads, self.hidden_size_per_attention_head
+        z = z_pre.reshape(z_pre.shape[0], nh, 3 * hd, L)
+        x2, x1, v = (z[:, :, :hd].reshape(1, -1, L), z[:, :, hd:2 * hd].reshape(1, -1, L),
+                     z[:, :, 2 * hd:].reshape(1, -1, L))
+        x1v = x1 * v
+        fft_size = 2 * L
+        Hf = torch.fft.rfft(h.to(dtype=torch.float32), n=fft_size) / fft_size
+        X = torch.fft.fft(x1v.to(dtype=torch.float32), n=fft_size)[..., : Hf.shape[-1]]
+        y = torch.fft.irfft(X * Hf, n=fft_size, norm="forward")[..., :L]
+        y = (y.to(x1v.dtype) + x1v * self.D.unsqueeze(-1)) * x2
+        return y.permute(0, 2, 1), inference_params
+
+
+class SHMLP(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        self.l1 = nn.Linear(c.hidden_size, c.inner_mlp_size, bias=False)
+        self.l2 = nn.Linear(c.hidden_size, c.inner_mlp_size, bias=False)
+        self.l3 = nn.Linear(c.inner_mlp_size, c.hidden_size, bias=False)
+
+    def forward(self, z):
+        return self.l3(F.silu(self.l1(z)) * self.l2(z))
+
+
+class SHConvBlock(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        self.pre_norm, self.post_norm = RMSNorm(c), RMSNorm(c)
+        self.filter = SHFilter(c)
+        self.projections = nn.Linear(c.hidden_size, 3 * c.hidden_size)
+        self.out_filter_dense = nn.Linear(c.hidden_size, c.hidden_size)
+        self.mlp = SHMLP(c)
+
+    def forward(self, u, inference_params=None, padding_mask=None):
+        z = self.projections(self.pre_norm(u))
+        z, _ = self.filter(z)
+        u = self.out_filter_dense(z) + u
+        return self.mlp(self.post_norm(u)) + u, None
+
+
+class SHAttnBlock(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        from marv_hyena.stripedhyena import MHA
+
+        self.pre_norm, self.post_norm = RMSNorm(c), RMSNorm(c)
+        self.inner_mha_cls = MHA(c.hidden_size, c.num_attention_heads,
+                                 num_heads_kv=c.num_attention_heads // c.proj_groups,
+                                 rotary_emb_dim=c.hidden_size // c.num_attention_heads,
+                                 qkv_proj_bias=c.qkv_proj_bias, rotary_emb_base=c.rotary_emb_base,
+                                 out_proj_bias=c.mha_out_proj_bias)
+        self.mlp = SHMLP(c)
+
+    def forward(self, u, inference_params=None, padding_mask=None):
+        u = self.inner_mha_cls(self.pre_norm(u), inference_params=inference_params) + u
+        return self.mlp(self.post_norm(u)) + u, None
+
+
+class SHEmbedding(nn.Embedding):
+    """layers.VocabParallelEmbedding: embed() calls self.forward directly, so
+    forward hooks on this module never fire (marv-hyena must not rely on them)."""
+
+    def embed(self, x):
+        return self.forward(x)
+
+    def unembed(self, u):
+        return u @ self.weight.T
+
+
+class StripedHyena7BLike(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        self.config = c
+        self.embedding_layer = SHEmbedding(c.vocab_size, c.hidden_size)
+        self.norm = RMSNorm(c)
+        self.unembed = SHEmbedding(c.vocab_size, c.hidden_size)
+        self.blocks = nn.ModuleList(SHAttnBlock(c) if i in c.attn_layer_idxs else SHConvBlock(c)
+                                    for i in range(c.num_layers))
+
+    def forward(self, x, inference_params_dict=None, padding_mask=None):
+        x = self.embedding_layer.embed(x)
+        for block in self.blocks:
+            x, _ = block(x)
+        return self.unembed.unembed(self.norm(x)), None
+
+
+def make_tiny_sh(seed: int = 0, **over) -> StripedHyena7BLike:
+    torch.manual_seed(seed)
+    return StripedHyena7BLike(tiny_sh_config(**over)).eval()
+
+
+class CharTokenizer:
+    """Minimal stand-in for a Hugging Face tokenizer: one id per character, mod vocab."""
+
+    def __init__(self, vocab_size: int = 64):
+        self.vocab_size = vocab_size
+
+    def __call__(self, text, add_special_tokens=True):
+        ids = [ord(ch) % (self.vocab_size - 2) + 2 for ch in text]
+        return {"input_ids": ([1] if add_special_tokens else []) + ids}
+
+    def decode(self, ids):
+        return "".join(chr(int(i) + 30) for i in ids)

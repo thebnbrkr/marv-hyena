@@ -63,6 +63,11 @@ def capture_writes(hm: HyenaModel, ids: torch.Tensor, positions: list[int], bloc
     finally:
         h1.remove()
         h2.remove()
+    if "embed" not in store:
+        # StripedHyena-7B's embedding calls self.forward directly, so no hook fires;
+        # its embedding is a plain lookup, so read the same rows from the weight.
+        rows = ids[0, list(positions)].to(hm.model.embedding_layer.weight.device)
+        store["embed"] = hm.model.embedding_layer.weight[rows].detach().float().cpu()
     return Writes(
         positions=list(positions),
         embed=store["embed"],
@@ -83,6 +88,15 @@ def logit_direction(hm: HyenaModel, target: str, baseline: str | None = None) ->
     others = [baseline] if baseline is not None else [b for b in BASES if b != target]
     for b in others:
         tw[base_id(b)] -= 1.0 / len(others)
+    return tw @ W, tw
+
+
+def token_direction(hm: HyenaModel, target_id: int, baseline_id: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """logit[target_id] - logit[baseline_id] for any vocabulary (text models):
+    (hidden-space direction, token weights), as logit_direction returns."""
+    W = hm.unembed_weight().detach().float().cpu()
+    tw = torch.zeros(W.shape[0])
+    tw[target_id], tw[baseline_id] = 1.0, -1.0
     return tw @ W, tw
 
 

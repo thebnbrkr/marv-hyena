@@ -18,6 +18,11 @@ relies on, each read from `vortex/model/model.py`:
   write (output of `mlp`). Hooking those two modules captures everything.
 - final logits = unembed(norm(residual)); embeddings are tied by default.
 - Tokens are raw ASCII bytes (`CharLevelTokenizer`): A=65, C=67, G=71, T=84.
+
+The same handle reads StripedHyena-7B, the English text model Evo 2's
+architecture descends from (see stripedhyena.py): same module names, Hyena
+blocks listed in `hyena_layer_idxs` (all long implicit filters, kind "li"),
+and a tokenizer instead of ASCII bytes.
 """
 from __future__ import annotations
 
@@ -47,12 +52,14 @@ def base_id(base: str) -> int:
 
 
 class HyenaModel:
-    """Thin handle over a Vortex StripedHyena. Holds no state besides the
-    model; every analysis function takes one of these."""
+    """Thin handle over a StripedHyena (Vortex / Evo 2, or the Hub StripedHyena-7B).
+    Holds no state besides the model and its tokenizer; every analysis
+    function takes one of these. tokenizer=None means ASCII bytes (Evo 2)."""
 
-    def __init__(self, model: nn.Module):
+    def __init__(self, model: nn.Module, tokenizer=None):
         self.model = model
         self.config = model.config
+        self.tokenizer = tokenizer
         self._kinds = [self._kind_from_config(i) for i in range(len(model.blocks))]
 
     # ------------------------------------------------------------ loading
@@ -82,13 +89,21 @@ class HyenaModel:
         memory.install()  # chunked LI filter build: same numbers, fits long contexts on a 40 GB GPU
         return cls.from_evo2(Evo2(model_name, **kwargs))
 
+    @classmethod
+    def load_stripedhyena(cls, **kwargs) -> "HyenaModel":
+        """StripedHyena-Hessian-7B (English text) from the Hugging Face Hub, without
+        flash-attn. See stripedhyena.load for the arguments."""
+        from . import stripedhyena
+
+        return stripedhyena.load(**kwargs)
+
     # ------------------------------------------------------------ structure
     def _kind_from_config(self, i: int) -> str:
         c = self.config
         if i in c.get("attn_layer_idxs", []):
             return "attn"
-        if i in c.get("hcl_layer_idxs", []):
-            return "li"
+        if i in c.get("hcl_layer_idxs", []) or i in c.get("hyena_layer_idxs", []):
+            return "li"  # StripedHyena-7B's Hyena blocks are all long implicit (modal) filters
         if i in c.get("hcm_layer_idxs", []):
             return "mr"
         if i in c.get("hcs_layer_idxs", []):
@@ -165,7 +180,8 @@ class HyenaModel:
 
     # ------------------------------------------------------------ running
     def ids(self, seq: str) -> torch.Tensor:
-        return torch.tensor(encode(seq), dtype=torch.long, device=self.device).unsqueeze(0)
+        toks = encode(seq) if self.tokenizer is None else self.tokenizer(seq)["input_ids"]
+        return torch.tensor(toks, dtype=torch.long, device=self.device).unsqueeze(0)
 
     @torch.no_grad()
     def logits(self, ids_or_seq) -> torch.Tensor:

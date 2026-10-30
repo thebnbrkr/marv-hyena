@@ -74,7 +74,7 @@ def _split_gates(hm: HyenaModel, filt, z: torch.Tensor):
         x2, x1, v = (r[:, :hd].reshape(H, L), r[:, hd:2 * hd].reshape(H, L), r[:, 2 * hd:].reshape(H, L))
     else:
         x2, x1, v = zp.split([H, H, H], dim=0)
-    if filt.hyena_flip_x1x2:
+    if getattr(filt, "hyena_flip_x1x2", False):  # Vortex option; absent in StripedHyena-7B
         x1, x2 = x2, x1
     return x2, x1, v
 
